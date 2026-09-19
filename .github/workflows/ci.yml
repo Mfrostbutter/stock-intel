@@ -76,9 +76,15 @@ jobs:
       - name: migrate
         run: python scripts/migrate.py
       - name: seed the two tickers the endpoint tests use
+        # A close as well as the row: positions are valued at the latest stored close, and the
+        # valuation tests have nothing to assert without one.
         run: |
           psql "postgresql://postgres:test@localhost:5432/stocks" -v ON_ERROR_STOP=1 -c \
-            "INSERT INTO intel.watchlist (ticker, name) VALUES ('NVDA','NVIDIA'),('INTC','Intel') ON CONFLICT DO NOTHING;"
+            "INSERT INTO intel.watchlist (ticker, name) VALUES ('NVDA','NVIDIA'),('INTC','Intel') ON CONFLICT DO NOTHING;
+             INSERT INTO intel.prices_daily (ticker, as_of, open, high, low, close, volume, source)
+             VALUES ('NVDA', CURRENT_DATE, 210, 215, 205, 212.5, 1000000, 'ci'),
+                    ('INTC', CURRENT_DATE,  24,  25,  23,  24.5, 1000000, 'ci')
+             ON CONFLICT DO NOTHING;"
       - name: start the app
         working-directory: app
         run: |
