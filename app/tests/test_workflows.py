@@ -1,6 +1,7 @@
 """Contracts the shipped workflow JSON has to keep. Pure file checks, no n8n needed."""
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -8,6 +9,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 WF_DIR = ROOT / "workflows"
 IDS = json.loads((ROOT / "deploy" / "n8n" / "ids.json").read_text(encoding="utf-8"))
 FILES = sorted(WF_DIR.glob("*.json"))
+# Shared with the CI secret scan, which greps the whole tree with the same list.
+FORBIDDEN = [ln for ln in (ROOT / ".github" / "forbidden-patterns.txt").read_text(encoding="utf-8")
+             .splitlines() if ln.strip() and not ln.startswith("#")]
 
 
 def load(path):
@@ -65,8 +69,8 @@ def test_sub_workflow_references_resolve(path):
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.name)
 def test_no_hostname_or_mail_node_is_baked_in(path):
     raw = path.read_text(encoding="utf-8")
-    for bad in ("microsoftOutlook", "svc.cluster.local", "10.10.0.", "localhost:5679"):
-        assert bad not in raw, f"{path.name} still contains {bad}"
+    for pattern in FORBIDDEN:
+        assert not re.search(pattern, raw), f"{path.name} matches {pattern}"
 
 
 def test_daily_sends_the_brief_to_telegram_within_the_message_cap():

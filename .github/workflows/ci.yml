@@ -49,7 +49,12 @@ jobs:
       STOCKS_PG_USER: postgres
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: test
+      STOCKS_PG_PASSWORD: test
       STOCKS_APP_PG_PASSWORD: test
+      STOCKS_ANALYST_PG_PASSWORD: test
+      STOCKS_INTRADAY_SVC_PASSWORD: test
+      STOCKS_INTRADAY_RO_PASSWORD: test
+      N8N_DB_PASSWORD: test
       STOCK_INTEL_APP_TOKEN: ci-token-not-a-secret
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +66,13 @@ jobs:
         run: |
           pip install -r app/requirements.txt -r scripts/requirements.txt
           pip install pytest pytest-asyncio
+      - name: databases and roles
+        # The same script the compose Postgres runs on an empty volume. The migrations grant to
+        # these roles, so they have to exist first.
+        env:
+          PGHOST: localhost
+          PGPASSWORD: test
+        run: bash deploy/postgres/init.sh
       - name: migrate
         run: python scripts/migrate.py
       - name: seed the two tickers the endpoint tests use
@@ -114,10 +126,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: no homelab or personal identifiers
+        # Pattern list lives in .github, which this grep skips, so the list is never its own hit.
         run: |
-          if grep -rInE '10\.[0-9]+\.[0-9]+\.[0-9]+|svc\.cluster\.local' \
-               --exclude-dir=.git --exclude-dir=.github . ; then
-            echo "private network address found"; exit 1
+          grep -vE '^\s*(#|$)' .github/forbidden-patterns.txt > /tmp/patterns
+          if grep -rInE -f /tmp/patterns --exclude-dir=.git --exclude-dir=.github . ; then
+            echo "forbidden identifier found"; exit 1
           fi
 
   images:
