@@ -1,0 +1,257 @@
+{
+  "id": "siEntrySignals01",
+  "name": "stock-intel: Entry Signals",
+  "tags": [
+    "stock-intel",
+    "daily"
+  ],
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 300
+  },
+  "nodes": [
+    {
+      "id": "e1000000-0000-4000-8000-000000000001",
+      "name": "Every ~2h, market hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10,12,14 * * 1-5"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "45 15 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e1000000-0000-4000-8000-000000000002",
+      "name": "Market clock",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        336,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "url": "https://paper-api.alpaca.markets/v2/clock",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "siCredAlpaca0001",
+          "name": "Stock Intel Alpaca (headers)"
+        }
+      }
+    },
+    {
+      "id": "e1000000-0000-4000-8000-000000000003",
+      "name": "Open gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Stop (no items) unless the market is open right now. Alpaca /v2/clock is the\n// source of truth, so holidays and early closes skip automatically.\nconst c = $json || {};\nif (c.is_open !== true) return [];\nreturn [{ json: { is_open: true, checked_at: c.timestamp || new Date().toISOString(), next_close: c.next_close || null } }];"
+      }
+    },
+    {
+      "id": "e1000000-0000-4000-8000-000000000004",
+      "name": "Run entry pass",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1264,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.app_base_url }}/api/entries/signal",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({}) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "siCredWebhook001",
+          "name": "Stock Intel App Webhook (header)"
+        }
+      }
+    },
+    {
+      "id": "e1000000-0000-4000-8000-000000000005",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// The app answers 202 with the queued analysis ids, or an error body the entry\n// pass swallowed (429 = daily cap, 404 = no live entry-watch tickers). Never fail.\nconst r = $json || {};\nreturn [{ json: { ok: true, queued: r.analyses || [], tickers: r.tickers || [], status: r.status || r.detail || 'unknown', as_of: r.as_of || null } }];"
+      }
+    },
+    {
+      "id": "e5c1a2b3-0005-4a00-8000-000000000005",
+      "name": "App URL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        928,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE((SELECT value FROM intel.config WHERE key = 'app_base_url'), '\"http://app:8095\"'::jsonb) #>> '{}' AS app_base_url;",
+        "options": {}
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Trigger + market-open gate\n\nCron fires four times a weekday. Alpaca /v2/clock is the source of truth for the session, so holidays and early closes skip themselves: when is_open is false the gate emits nothing and the run ends quietly.",
+        "width": 912,
+        "height": 416,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Run the entry pass\n\nApp URL reads intel.config.app_base_url, so the callback host is configuration rather than a hardcoded name. POST /api/entries/signal then re-scores every live entry-watch ticker against today's prices and queues an analyst pass for the ones that moved into or out of their zone. Summary normalises the answer: 202 with queued analysis ids, 429 when the analyst daily cap is spent, 404 when nothing is on watch. Never fails the run.",
+        "width": 912,
+        "height": 416,
+        "color": 5
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        864,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Stock Intel: Entry Signals\n\nRe-runs the analyst entry pass a few times a day so entry-watch signals stay current between daily briefs. Framework, not advice; nothing here places orders.\n\n**Runs** 10:00, 12:00, 14:00 and 15:45 on weekdays, and only when the market is actually open.\n**Calls** the app at intel.config.app_base_url with header auth. The app does the work; this workflow is the clock.",
+        "width": 640,
+        "height": 288,
+        "color": 6
+      },
+      "id": "zone-panel-1",
+      "name": "zone-panel-1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -512
+      ]
+    }
+  ],
+  "connections": {
+    "Every ~2h, market hours": {
+      "main": [
+        [
+          {
+            "node": "Market clock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Market clock": {
+      "main": [
+        [
+          {
+            "node": "Open gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open gate": {
+      "main": [
+        [
+          {
+            "node": "App URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run entry pass": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "App URL": {
+      "main": [
+        [
+          {
+            "node": "Run entry pass",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

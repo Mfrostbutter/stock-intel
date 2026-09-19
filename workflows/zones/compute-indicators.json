@@ -1,0 +1,11 @@
+{"gutter": 16,
+ "zones": [
+  {"title": "Input", "color": 4, "nodes": ["When called"],
+   "body": "Called with {run_id, as_of, tickers[], days_back}. days_back=5 daily, 600 on backfill."},
+  {"title": "Load", "color": 3, "nodes": ["Load price history"],
+   "body": "400 calendar days of intel.prices_daily per ticker, ordered by date. Enough history for SMA200 and the 52-week range."},
+  {"title": "Compute", "color": 5, "nodes": ["Compute"],
+   "body": "Pure JS, no API calls: SMA 20/50/200, Wilder RSI14 and ATR14, 20-day volume z-score, 52-week high/low and distance from high, 1/5/20-day returns. Emits the last days_back sessions per ticker."},
+  {"title": "Store", "color": 3, "nodes": ["Upsert indicators_daily", "Return counts"],
+   "body": "Upsert into intel.indicators_daily keyed (ticker, as_of). Returns row and ticker counts to the caller."}
+ ]}

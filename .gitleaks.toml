@@ -1,0 +1,18 @@
+# Secret scanning for this repository. Extends the default rule set; the allowlist only covers
+# files whose whole job is to show the shape of a value.
+title = "stock-intel"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "examples and templates, which carry placeholders rather than values"
+paths = [
+  '''\.env\.example$''',
+  '''watchlist\.example\.yaml$''',
+  '''deploy/k8s/secret\.example\.yaml$''',
+  '''deploy/n8n/ids\.json$''',
+]
+regexes = [
+  '''ci-token-not-a-secret''',
+]

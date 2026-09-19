@@ -1,0 +1,2922 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1280, initial-scale=1" />
+<title>Stock Intel</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iMzAiIGhlaWdodD0iMzAiIHJ4PSI3IiBmaWxsPSIjMGExMjIwIiBzdHJva2U9IiMzOGJkZjgiIHN0cm9rZS1vcGFjaXR5PSIwLjYiIHN0cm9rZS13aWR0aD0iMS41Ii8+PGxpbmUgeDE9IjExIiB5MT0iNyIgeDI9IjExIiB5Mj0iMjUiIHN0cm9rZT0iIzM4YmRmOCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48cmVjdCB4PSI4IiB5PSIxMiIgd2lkdGg9IjYiIGhlaWdodD0iOSIgcng9IjEuNSIgZmlsbD0iIzM4YmRmOCIvPjxsaW5lIHgxPSIyMSIgeTE9IjYiIHgyPSIyMSIgeTI9IjI0IiBzdHJva2U9IiM3ZGQzZmMiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHJlY3QgeD0iMTgiIHk9IjEwIiB3aWR0aD0iNiIgaGVpZ2h0PSI4IiByeD0iMS41IiBmaWxsPSIjN2RkM2ZjIi8+PC9zdmc+">
+<!--
+  Single-file SPA for Stock Intel. Served by GET /ui.
+  All API calls go to /api/* with Bearer auth. No build step, CDN deps only.
+  v0.3.0 - phases A, A2 (holdings) and B (Ticker screen with charts)
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink: { 900: '#d4e3f5', 700: '#a9c4dd', 600: '#7ea8cc', 400: '#4a6a88', 300: '#3a5670' },
+          surface: { 0: '#05060a', 1: '#0a0e18', 2: '#0d1526', 3: '#111a2e' },
+          line: { DEFAULT: 'rgba(56,189,248,0.16)', soft: 'rgba(56,189,248,0.07)' },
+          brand: { 50: 'rgba(56,189,248,0.14)', 100: 'rgba(56,189,248,0.22)', 500: '#7dd3fc', 600: '#38bdf8', 700: '#7dd3fc' },
+          ok: '#34d399', danger: '#f87171', warn: '#f59e0b',
+        },
+        fontFamily: {
+          sans: ['Chakra Petch', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+          mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        },
+        boxShadow: {
+          card: '0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.35)',
+          pop:  '0 8px 28px rgba(0,0,0,0.6), 0 0 0 1px rgba(56,189,248,0.08)',
+        },
+      },
+    },
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+  [x-cloak] { display: none !important; }
+  html, body { background: #05060a; color: #d4e3f5; -webkit-font-smoothing: antialiased; }
+  body { font-family: 'Chakra Petch', 'Inter', ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.1px; }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; line-height: 1.25; transition: background .12s ease, box-shadow .12s ease, border-color .12s ease, color .12s ease; white-space: nowrap; }
+  .btn[disabled] { opacity: .55; cursor: not-allowed; }
+  .btn-primary { background: #38bdf8; color: #04141f; }
+  .btn-primary:hover:not([disabled]) { background: #7dd3fc; }
+  .btn-secondary { background: #0d1526; color: #d4e3f5; border: 1px solid rgba(56,189,248,0.16); }
+  .btn-secondary:hover:not([disabled]) { background: #111a2e; }
+  .btn-ghost { background: transparent; color: #7ea8cc; }
+  .btn-ghost:hover:not([disabled]) { background: rgba(56,189,248,0.08); color: #d4e3f5; }
+  .btn-danger { background: rgba(248,113,113,0.12); color: #f87171; border: 1px solid rgba(248,113,113,0.30); }
+  .btn-danger:hover:not([disabled]) { background: rgba(248,113,113,0.20); }
+  .btn-sm { padding: 4px 8px; font-size: 12px; }
+  .btn-icon { padding: 6px; }
+
+  .input, .select-input, textarea.input {
+    width: 100%; background: #0d1526; color: #d4e3f5;
+    border: 1px solid rgba(56,189,248,0.16); border-radius: 6px;
+    padding: 6px 10px; font-size: 13px; line-height: 1.35;
+  }
+  .input:focus, .select-input:focus { outline: none; border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56,189,248,0.22), 0 0 14px rgba(56,189,248,0.18); }
+  .input-sm { padding: 4px 8px; font-size: 12px; }
+  .label { display: block; font-size: 12px; font-weight: 500; color: #7ea8cc; margin-bottom: 4px; }
+
+  .card { background: #0a0e18; border: 1px solid rgba(56,189,248,0.10); border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 6px 10px 6px 12px; border-radius: 6px; font-size: 13px; color: #a9c4dd; font-weight: 500; position: relative; cursor: pointer; transition: background .1s ease, color .1s ease; }
+  .nav-item:hover { background: #111a2e; color: #d4e3f5; }
+  .nav-item.active { background: rgba(56,189,248,0.14); color: #7dd3fc; }
+  .nav-item.active::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; background: #38bdf8; border-radius: 0 2px 2px 0; }
+  .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+  .cite { display: inline-block; margin-left: 2px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; line-height: 1.3; padding: 1px 5px; border-radius: 4px; background: rgba(56,189,248,0.14); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.35); vertical-align: 1px; cursor: pointer; }
+  .cite:hover { background: rgba(56,189,248,0.22); }
+  .cite-bad { background: rgba(248,113,113,0.15); color: #f87171; border-color: rgba(248,113,113,0.30); cursor: help; }
+  input.tgl { width: 16px; height: 16px; accent-color: #38bdf8; cursor: pointer; }
+  .text-warn { color: #f59e0b; }
+  .bg-ok { background: #34d399; }
+  .bg-danger { background: #f87171; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; line-height: 1.4; white-space: nowrap; }
+  .pill-flag   { background: rgba(52,211,153,0.15); color: #34d399; }
+  .pill-risk   { background: rgba(248,113,113,0.15); color: #f87171; }
+  .pill-tag    { background: rgba(126,168,204,0.10); color: #7ea8cc; }
+  .pill-hold   { background: rgba(56,189,248,0.14); color: #7dd3fc; }
+  .pill-bench  { background: #0d1526; color: #4a6a88; }
+  .pill-warn   { background: rgba(245,158,11,0.15); color: #f59e0b; }
+
+  .data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+  .data-table thead th { position: sticky; top: 0; background: #05060a; z-index: 2; border-bottom: 1px solid rgba(56,189,248,0.16); padding: 8px 10px; text-align: left; font-weight: 500; color: #7ea8cc; font-size: 12px; user-select: none; white-space: nowrap; }
+  /* .num alone loses to the thead th rule above, so numeric headers need their own. */
+  .data-table thead th.num { text-align: right; }
+  .data-table thead th.sortable { cursor: pointer; }
+  .data-table thead th.sortable:hover { color: #d4e3f5; background: rgba(56,189,248,0.08); }
+  .data-table tbody td { padding: 8px 10px; border-bottom: 1px solid rgba(56,189,248,0.08); vertical-align: middle; color: #d4e3f5; white-space: nowrap; }
+  .data-table tbody tr:hover td { background: rgba(56,189,248,0.05); }
+  .num { text-align: right; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; }
+  /* The td color rule above outranks Tailwind's single-class colors, so gain/loss cells need these. */
+  .data-table tbody td.text-ok, .md-prose .text-ok { color: #34d399; }
+  .data-table tbody td.text-danger, .md-prose .text-danger { color: #f87171; }
+  .data-table tbody td.text-warn { color: #f59e0b; }
+  .data-table tbody td.text-ink-400 { color: #4a6a88; }
+
+  .md-prose { color: #d4e3f5; line-height: 1.65; font-size: 14px; }
+  .md-prose h1 { font-size: 1.4rem; font-weight: 700; margin: .8rem 0 .5rem; letter-spacing: -.01em; }
+  .md-prose h2 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 .4rem; padding-bottom: 3px; border-bottom: 1px solid rgba(56,189,248,0.16); }
+  .md-prose h3 { font-size: .95rem; font-weight: 600; margin: .6rem 0 .3rem; color: #a9c4dd; }
+  .md-prose p { margin: .4rem 0; }
+  .md-prose ul { padding-left: 1.4rem; list-style: disc; margin: .4rem 0; }
+  .md-prose ol { padding-left: 1.4rem; list-style: decimal; margin: .4rem 0; }
+  .md-prose code { background: rgba(56,189,248,0.08); padding: 1px 5px; border-radius: 4px; font-size: .88em; font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  .md-prose a { color: #38bdf8; text-decoration: none; border-bottom: 1px solid rgba(56,189,248,0.35); }
+  .md-prose hr { margin: .8rem 0; border: none; border-top: 1px solid rgba(56,189,248,0.16); }
+  .md-prose blockquote { border-left: 3px solid rgba(56,189,248,0.16); padding-left: 12px; color: #7ea8cc; margin: .5rem 0; }
+  .md-prose table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: .6rem 0; }
+  .md-prose th { text-align: left; font-weight: 500; color: #7ea8cc; border-bottom: 1px solid rgba(56,189,248,0.16); padding: 6px 8px; }
+  .md-prose td { border-bottom: 1px solid rgba(56,189,248,0.08); padding: 6px 8px; font-variant-numeric: tabular-nums; }
+
+  .toast { animation: slideIn .18s ease; }
+  @keyframes slideIn { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .modal-backdrop { animation: fadeIn .12s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* cyberpunk neon (glow only) */
+  .btn-primary { box-shadow: 0 0 0 1px rgba(56,189,248,.45), 0 0 16px rgba(56,189,248,.32); }
+  .btn-primary:hover:not([disabled]) { box-shadow: 0 0 0 1px rgba(125,211,252,.6), 0 0 22px rgba(56,189,248,.5); }
+  .nav-item.active { box-shadow: inset 0 0 0 1px rgba(56,189,248,.18); text-shadow: 0 0 10px rgba(56,189,248,.55); }
+  .nav-item.active::before { box-shadow: 0 0 8px rgba(56,189,248,.85); }
+  .cite { box-shadow: 0 0 8px rgba(56,189,248,.18); }
+  .pill-flag { box-shadow: 0 0 8px rgba(52,211,153,.18); }
+  .pill-hold { box-shadow: 0 0 8px rgba(56,189,248,.15); }
+  ::selection { background: rgba(56,189,248,.30); color: #d4e3f5; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(56,189,248,.20); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,.38); }
+</style>
+</head>
+<body>
+<div x-data="stockIntel()" x-init="boot()" x-cloak class="min-h-screen">
+
+  <!-- Token gate -->
+  <template x-if="!token">
+    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop">
+      <div class="card w-[420px] p-6">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-brand-50 text-brand-700"><i data-lucide="lock"></i></span>
+          <h2 class="text-base font-semibold">Bearer token required</h2>
+        </div>
+        <p class="text-sm text-ink-600 mb-4">Paste <code class="mono text-xs bg-surface-3 px-1.5 py-0.5 rounded">STOCK_INTEL_APP_TOKEN</code>. Stored only in this browser's localStorage.</p>
+        <input type="password" x-model="tokenInput" class="input mono" placeholder="paste token..." @keydown.enter="saveToken()" />
+        <div class="flex justify-end mt-4">
+          <button @click="saveToken()" class="btn btn-primary">Save and continue</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Toasts -->
+  <div class="fixed bottom-4 right-4 z-40 space-y-2 w-[380px] pointer-events-none">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="toast card pointer-events-auto px-3 py-2.5 flex items-start gap-2.5"
+           :class="{ 'border-l-4 border-l-danger': t.kind==='error', 'border-l-4 border-l-ok': t.kind==='success', 'border-l-4 border-l-brand-600': t.kind==='info' }">
+        <div class="flex-1 text-sm text-ink-900 leading-snug" x-text="t.msg"></div>
+        <button @click="toasts = toasts.filter(x => x.id !== t.id)" class="btn btn-ghost btn-icon -m-1">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </template>
+  </div>
+
+  <!-- Add ticker modal -->
+  <template x-if="addModal">
+    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop" @click.self="addModal = false">
+      <div class="card w-[460px] p-5">
+        <h2 class="text-base font-semibold mb-1">Add ticker</h2>
+        <p class="text-xs text-ink-600 mb-4">Validated against Finnhub, then two years of history backfills automatically.</p>
+        <div class="space-y-3">
+          <div>
+            <label class="label">Ticker</label>
+            <input x-model="addForm.ticker" class="input mono uppercase" placeholder="RKLB" @keydown.enter="submitAdd()" />
+          </div>
+          <div>
+            <label class="label">Tags <span class="text-ink-400 font-normal">comma separated</span></label>
+            <input x-model="addForm.tags" class="input" placeholder="space, holding" />
+            <div class="flex flex-wrap gap-1 mt-1.5">
+              <template x-for="t in allTags" :key="t">
+                <button class="pill pill-tag" @click="appendTag(t)" x-text="t"></button>
+              </template>
+            </div>
+          </div>
+          <div>
+            <label class="label">Target entry <span class="text-ink-400 font-normal">optional</span></label>
+            <input x-model="addForm.target_entry" type="number" step="0.01" class="input mono" placeholder="24.50" />
+          </div>
+          <div>
+            <label class="label">Notes</label>
+            <textarea x-model="addForm.notes" rows="2" class="input" placeholder="why this is on the list"></textarea>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-5">
+          <button @click="addModal = false" class="btn btn-secondary">Cancel</button>
+          <button @click="submitAdd()" class="btn btn-primary" :disabled="busy.add">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span x-text="busy.add ? 'Validating...' : 'Add and backfill'"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Edit ticker modal -->
+  <template x-if="editModal">
+    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop" @click.self="editModal = false">
+      <div class="card w-[460px] p-5">
+        <h2 class="text-base font-semibold mb-1"><span class="mono" x-text="editForm.ticker"></span></h2>
+        <p class="text-xs text-ink-600 mb-4">Tags are yours to invent. `holding` is set from your positions and cannot be typed here.</p>
+        <div class="space-y-3">
+          <div>
+            <label class="label">Name</label>
+            <input x-model="editForm.name" class="input" placeholder="company name" />
+          </div>
+          <div>
+            <label class="label">Tags <span class="text-ink-400 font-normal">comma separated</span></label>
+            <input x-model="editForm.tags" class="input" placeholder="semis, ai-compute" />
+            <div class="flex flex-wrap gap-1 mt-1.5">
+              <template x-for="t in allTags" :key="t">
+                <button class="pill pill-tag" @click="appendEditTag(t)" x-text="t"></button>
+              </template>
+            </div>
+          </div>
+          <label class="flex items-center gap-2 text-xs text-ink-600">
+            <input type="checkbox" x-model="editForm.benchmark" />
+            Benchmark: scored for context, never flagged, and relative strength is measured against it
+          </label>
+          <div>
+            <label class="label">Target entry <span class="text-ink-400 font-normal">optional</span></label>
+            <input x-model="editForm.target_entry" type="number" step="0.01" class="input mono" />
+          </div>
+          <div>
+            <label class="label">Notes</label>
+            <textarea x-model="editForm.notes" rows="2" class="input"></textarea>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-5">
+          <button @click="editModal = false" class="btn btn-secondary">Cancel</button>
+          <button @click="submitEdit()" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Daily analyst spend detail -->
+  <template x-if="spendModal">
+    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop" @click.self="spendModal = false">
+      <div class="card w-[560px] max-h-[80vh] flex flex-col p-5">
+        <div class="flex items-start gap-2 mb-3">
+          <div>
+            <h2 class="text-base font-semibold leading-tight">Analyst spend today</h2>
+            <p class="text-xs text-ink-600" x-text="(spend.as_of || '') + ' (ET). Framework, not advice.'"></p>
+          </div>
+          <button @click="spendModal = false" class="btn btn-ghost btn-sm ml-auto"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+
+        <div class="flex items-baseline gap-2">
+          <span class="text-2xl font-semibold mono" :class="spendClass" x-text="money(spend.spent)"></span>
+          <span class="text-sm text-ink-400 mono" x-text="'/ ' + money(spend.cap) + ' cap'"></span>
+          <span class="text-xs text-ink-400 ml-auto" x-text="spend.count + ' pass' + (spend.count === 1 ? '' : 'es')"></span>
+        </div>
+        <div class="mt-2 h-1.5 rounded bg-surface-3 overflow-hidden">
+          <div class="h-full rounded transition-all" :class="spendBarClass" :style="'width:' + spendPct + '%'"></div>
+        </div>
+        <div class="text-[11px] text-ink-400 mt-1.5" x-show="spend.remaining != null"
+             x-text="spend.remaining > 0 ? money(spend.remaining) + ' left before the cap pauses new passes' : 'Daily cap reached; new passes pause until tomorrow (ET)'"></div>
+
+        <div class="mt-4 overflow-y-auto -mx-1 px-1" x-show="spendDetail && spendDetail.items && spendDetail.items.length">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="text-ink-400 text-left border-b border-line">
+                <th class="py-1 pr-2 font-medium">Time</th>
+                <th class="py-1 pr-2 font-medium">Mode</th>
+                <th class="py-1 pr-2 font-medium">Model</th>
+                <th class="py-1 pr-2 font-medium text-right">Tokens</th>
+                <th class="py-1 pl-2 font-medium text-right">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="a in spendDetail.items" :key="a.id">
+                <tr class="border-b border-line/60">
+                  <td class="py-1 pr-2 mono whitespace-nowrap" x-text="fmtClock(a.created_at)"></td>
+                  <td class="py-1 pr-2">
+                    <span class="pill" :class="a.status === 'ok' ? 'pill-flag' : (a.status === 'invalid' || a.status === 'error' ? 'pill-risk' : 'pill-warn')"
+                          x-text="a.mode + (a.status !== 'ok' ? ' / ' + a.status : '')"></span>
+                  </td>
+                  <td class="py-1 pr-2 mono text-ink-600 truncate max-w-[140px]" :title="a.model" x-text="shortModel(a.model)"></td>
+                  <td class="py-1 pr-2 mono text-right text-ink-500" x-text="a.tokens_in != null ? (fmtTokens(a.tokens_in) + '/' + fmtTokens(a.tokens_out)) : '-'"></td>
+                  <td class="py-1 pl-2 mono text-right" :class="a.cost_usd ? '' : 'text-ink-400'" x-text="a.cost_usd != null ? money(a.cost_usd, 4) : '-'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <div class="mt-4 text-xs text-ink-400" x-show="spendBusy">Loading...</div>
+        <div class="mt-4 text-xs text-ink-400" x-show="!spendBusy && spendDetail && (!spendDetail.items || !spendDetail.items.length)">No analyst passes yet today.</div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Position editor. positions is the source of truth; the holding tag follows it. -->
+  <template x-if="posModal">
+    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop" @click.self="posModal = false">
+      <div class="card w-[460px] p-5">
+        <h2 class="text-base font-semibold mb-1">
+          <span x-text="posForm.existing ? 'Edit position' : 'Add position'"></span>
+          <span class="mono text-brand-600" x-show="posForm.existing" x-text="posForm.ticker"></span>
+        </h2>
+        <p class="text-xs text-ink-600 mb-4">Hand entered from your broker fill, never synced. Saving tags the ticker <span class="mono">holding</span>.</p>
+        <div class="space-y-3">
+          <div x-show="!posForm.existing">
+            <label class="label">Ticker</label>
+            <input x-model="posForm.ticker" @input="posForm.ticker = (posForm.ticker || '').toUpperCase()" type="text" class="input mono" placeholder="TSLA" @keydown.enter="savePosition()" />
+          </div>
+          <!-- Entry mode: dollars mirrors a broker fractional fill; shares is manual. -->
+          <div class="flex gap-1 bg-surface-2 border border-line rounded-md p-1 text-xs">
+            <button type="button" class="flex-1 rounded px-2 py-1 transition-colors" :class="posForm.mode === 'dollars' ? 'bg-brand-600 text-white' : 'text-ink-600 hover:text-ink-800'" @click="posForm.mode = 'dollars'">Dollars + fill price</button>
+            <button type="button" class="flex-1 rounded px-2 py-1 transition-colors" :class="posForm.mode === 'shares' ? 'bg-brand-600 text-white' : 'text-ink-600 hover:text-ink-800'" @click="posForm.mode = 'shares'">Shares + avg cost</button>
+          </div>
+          <div class="grid grid-cols-2 gap-3" x-show="posForm.mode === 'dollars'">
+            <div>
+              <label class="label">Amount spent ($)</label>
+              <input x-model="posForm.amount" type="number" step="0.01" class="input mono" placeholder="100.65" @keydown.enter="savePosition()" />
+            </div>
+            <div>
+              <label class="label">Fill price ($)</label>
+              <input x-model="posForm.fill_price" type="number" step="0.0001" class="input mono" placeholder="362.05" @keydown.enter="savePosition()" />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3" x-show="posForm.mode === 'shares'">
+            <div>
+              <label class="label">Shares</label>
+              <input x-model="posForm.qty" type="number" step="0.000001" class="input mono" placeholder="0.455" @keydown.enter="savePosition()" />
+            </div>
+            <div>
+              <label class="label">Average cost</label>
+              <input x-model="posForm.avg_cost" type="number" step="0.0001" class="input mono" placeholder="219.32" @keydown.enter="savePosition()" />
+            </div>
+          </div>
+          <div>
+            <label class="label">Opened <span class="text-ink-400 font-normal">optional</span></label>
+            <input x-model="posForm.opened_at" type="date" class="input mono" />
+          </div>
+          <div>
+            <label class="label">Notes</label>
+            <textarea x-model="posForm.notes" rows="2" class="input" placeholder="lot context, plan, anything"></textarea>
+          </div>
+          <div class="bg-surface-2 border border-line rounded-md px-3 py-2 text-xs flex justify-between">
+            <span class="text-ink-600" x-text="posForm.mode === 'dollars' ? 'Shares / basis' : 'Cost basis'"></span>
+            <span class="mono font-medium" x-text="posForm.mode === 'dollars' ? (posShares + ' sh at ' + posBasis) : posBasis"></span>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 mt-5">
+          <button x-show="posForm.existing" @click="closePosition(posForm.ticker)" class="btn btn-ghost text-danger" :disabled="busy.pos">
+            <i data-lucide="x-circle" class="w-4 h-4"></i> Close position
+          </button>
+          <div class="ml-auto flex gap-2">
+            <button @click="posModal = false" class="btn btn-secondary">Cancel</button>
+            <button @click="savePosition()" class="btn btn-primary" :disabled="busy.pos">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              <span x-text="busy.pos ? 'Saving...' : 'Save'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Entry watch editor. Zone and invalidation are the user's; the model checks them, never overwrites them. -->
+  <template x-if="entryModal">
+    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop" @click.self="entryModal = false">
+      <div class="card w-[520px] p-5">
+        <h2 class="text-base font-semibold mb-1">
+          <span x-text="entryForm.existing ? 'Edit entry watch' : 'Watch for an entry'"></span>
+          <span class="mono text-brand-600" x-show="entryForm.existing" x-text="entryForm.ticker"></span>
+        </h2>
+        <p class="text-xs text-ink-600 mb-3">Only the ticker is required. Leave the zone blank and the analyst proposes one on its first pass, anchored to a real level, which you can edit later. A ticker not yet on the watchlist is added and backfilled first.</p>
+        <div x-show="entryForm.kind === 'add'" class="bg-brand-600/10 border border-brand-600/30 rounded-md px-3 py-2 text-[11px] text-ink-700 mb-3 leading-relaxed">
+          <b>Add to a holding.</b> You hold <span class="mono" x-text="num(entryForm.qty, 3)"></span> at <span class="mono" x-text="num(entryForm.avg_cost, 2)"></span>. The zone must top out below <span class="mono" x-text="num(entryForm.zone_cap, 2)"></span> so a fill lowers the average cost. Marking it entered records the fill and puts the row back to watching for the next dip.
+        </div>
+        <div class="bg-surface-2 border border-line rounded-md px-3 py-2 text-[11px] text-ink-600 mb-3 leading-relaxed">
+          <b class="text-ink-700">Zone</b>: the price range where you would be willing to buy.
+          <b class="text-ink-700">Invalidation</b>: the price below which the idea is wrong and you would not buy.
+          <b class="text-ink-700">Horizon</b>: how long you expect to hold.
+        </div>
+        <div class="space-y-3">
+          <div x-show="!entryForm.existing">
+            <label class="label">Ticker</label>
+            <input x-model="entryForm.ticker" class="input mono uppercase" placeholder="RKLB" @keydown.enter="saveEntry()" />
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="label">Zone low <span class="text-ink-400 font-normal">optional</span></label>
+              <input x-model="entryForm.zone_low" type="number" step="0.01" class="input mono" placeholder="analyst proposes" />
+            </div>
+            <div>
+              <label class="label">Zone high <span class="text-ink-400 font-normal">optional</span></label>
+              <input x-model="entryForm.zone_high" type="number" step="0.01" class="input mono" placeholder="" />
+            </div>
+            <div>
+              <label class="label">Invalidation <span class="text-ink-400 font-normal">optional</span></label>
+              <input x-model="entryForm.invalidation" type="number" step="0.01" class="input mono" placeholder="" />
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="label">Horizon</label>
+              <select class="select-input" x-model="entryForm.horizon">
+                <option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option>
+              </select>
+            </div>
+            <div class="col-span-2" x-show="entryForm.existing">
+              <label class="label">Status</label>
+              <select class="select-input" x-model="entryForm.status">
+                <option value="watching">watching</option><option value="triggered">triggered</option>
+                <option value="entered">entered</option><option value="dropped">dropped</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="label">Thesis <span class="text-ink-400 font-normal">optional, why you are watching it</span></label>
+            <textarea x-model="entryForm.thesis" rows="3" class="input" placeholder="one or two lines: what has to be true for you to buy"></textarea>
+          </div>
+          <div>
+            <label class="label">Notes</label>
+            <textarea x-model="entryForm.notes" rows="2" class="input" placeholder="optional"></textarea>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 mt-5">
+          <button x-show="entryForm.existing && entryForm.status !== 'dropped'" @click="dropEntry(entryForm.ticker)" class="btn btn-ghost text-danger" :disabled="busy.entry">
+            <i data-lucide="archive" class="w-4 h-4"></i> Drop
+          </button>
+          <div class="ml-auto flex gap-2">
+            <button @click="entryModal = false" class="btn btn-secondary">Cancel</button>
+            <button @click="saveEntry()" class="btn btn-primary" :disabled="busy.entry">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              <span x-text="busy.entry ? 'Saving...' : 'Save'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Evidence drawer: the reasons JSON behind a score -->
+  <template x-if="drawer">
+    <div class="fixed inset-0 bg-black/50 z-40 flex justify-end modal-backdrop" @click.self="drawer = null">
+      <div class="bg-surface-1 w-[520px] h-full border-l border-line overflow-y-auto">
+        <div class="px-5 py-4 border-b border-line flex items-center justify-between sticky top-0 bg-surface-1 z-10">
+          <div>
+            <div class="text-sm font-semibold mono" x-text="drawer.ticker"></div>
+            <div class="text-xs text-ink-600" x-text="drawer.name || ''"></div>
+          </div>
+          <div class="flex items-center gap-1">
+            <button @click="openTicker(drawer.ticker); drawer = null" class="btn btn-secondary btn-sm">
+              <i data-lucide="line-chart" class="w-3.5 h-3.5"></i> Open chart
+            </button>
+            <button @click="drawer = null" class="btn btn-ghost btn-icon"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
+        </div>
+        <div class="p-5 space-y-4">
+          <div class="grid grid-cols-5 gap-2">
+            <template x-for="k in ['composite','momentum','value','sentiment','catalyst']" :key="k">
+              <div class="card p-2 text-center">
+                <div class="text-[10px] uppercase tracking-wide text-ink-400" x-text="k.slice(0,4)"></div>
+                <div class="mono text-sm font-medium" x-text="num(drawer[k], 1)"></div>
+              </div>
+            </template>
+          </div>
+          <div x-show="(drawer.flags || []).length">
+            <div class="label">Entry flags</div>
+            <div class="flex flex-wrap gap-1">
+              <template x-for="f in drawer.flags" :key="f"><span class="pill pill-flag" x-text="f"></span></template>
+            </div>
+          </div>
+          <div x-show="(drawer.risks || []).length">
+            <div class="label">Risk flags</div>
+            <div class="flex flex-wrap gap-1">
+              <template x-for="f in drawer.risks" :key="f"><span class="pill pill-risk" x-text="f"></span></template>
+            </div>
+          </div>
+          <div>
+            <div class="label">Evidence <span class="font-normal text-ink-400">scores_daily.reasons</span></div>
+            <pre class="mono text-[11px] bg-surface-2 border border-line rounded-md p-3 overflow-x-auto whitespace-pre-wrap" x-text="pretty(drawer.reasons)"></pre>
+          </div>
+          <div class="text-[11px] text-ink-400" x-text="'score as of ' + (drawer.score_as_of || drawer.as_of || 'n/a')"></div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Source drawer: one evidence item behind a citation chip -->
+  <template x-if="source">
+    <div class="fixed inset-0 bg-black/50 z-40 flex justify-end modal-backdrop" @click.self="source = null">
+      <div class="bg-surface-1 w-[560px] h-full border-l border-line overflow-y-auto">
+        <div class="px-5 py-4 border-b border-line flex items-center justify-between sticky top-0 bg-surface-1 z-10">
+          <div class="min-w-0">
+            <div class="text-sm font-semibold mono truncate" x-text="source.ref"></div>
+            <div class="text-xs text-ink-600" x-text="source.kind + (source.published_at ? ', ' + fmtTime(source.published_at) : '')"></div>
+          </div>
+          <div class="flex items-center gap-1">
+            <a x-show="source.url" :href="source.url" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
+              <i data-lucide="external-link" class="w-3.5 h-3.5"></i> Open
+            </a>
+            <button @click="source = null" class="btn btn-ghost btn-icon"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
+        </div>
+        <div class="p-5 space-y-4">
+          <div class="text-[13px] leading-relaxed" x-text="source.excerpt"></div>
+          <div>
+            <div class="label">Row as the model saw it</div>
+            <pre class="mono text-[11px] bg-surface-2 border border-line rounded-md p-3 overflow-x-auto whitespace-pre-wrap" x-text="pretty(source.payload)"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- App shell -->
+  <div class="flex min-h-screen">
+
+    <aside class="bg-[#070b14] border-r border-line w-[220px] flex-shrink-0 flex flex-col" style="position: sticky; top: 0; height: 100vh;">
+      <div class="px-3 pt-4 pb-3 flex items-center gap-2.5 border-b border-line">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style="background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.30); box-shadow: 0 0 12px rgba(56,189,248,0.25);">
+          <svg width="16" height="16" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <line x1="11" y1="7" x2="11" y2="25" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/>
+            <rect x="8" y="12" width="6" height="9" rx="1.5" fill="#38bdf8"/>
+            <line x1="21" y1="6" x2="21" y2="24" stroke="#7dd3fc" stroke-width="2" stroke-linecap="round"/>
+            <rect x="18" y="10" width="6" height="8" rx="1.5" fill="#7dd3fc"/>
+          </svg>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-semibold text-ink-900 leading-tight">Stock Intel</div>
+          <div class="text-[11px] text-ink-400 mono leading-tight" x-text="'v' + version"></div>
+        </div>
+      </div>
+
+      <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+        <template x-for="item in navItems" :key="item.key">
+          <a :href="'#' + item.key" class="nav-item" :class="screen === item.key ? 'active' : ''">
+            <i :data-lucide="item.icon"></i>
+            <span x-text="item.label"></span>
+            <span x-show="item.count != null" class="ml-auto text-[11px] mono px-1.5 rounded bg-surface-3 text-ink-600" x-text="item.count"></span>
+          </a>
+        </template>
+      </nav>
+
+      <div class="px-3 pb-2 space-y-1" x-show="positions.length">
+        <a href="#watchlist" class="flex items-center gap-1.5 text-[11px] text-ink-400 hover:text-brand-600">
+          <i data-lucide="wallet" class="w-3 h-3"></i>
+          <span x-text="'Holdings ' + positions.length"></span>
+          <span class="ml-auto mono" x-text="money(liveHoldings.total.market_value, 0)"></span>
+        </a>
+        <div class="flex items-center gap-1.5 text-[10px]" :class="marketOpen ? 'text-ok' : 'text-ink-400'"
+             :title="quoteError || (quoteFeed ? 'Alpaca ' + quoteFeed + ' feed' : '')">
+          <span class="inline-block w-1.5 h-1.5 rounded-full"
+                :class="quoteError ? 'bg-danger' : (marketOpen ? 'bg-ok' : 'bg-ink-300')"></span>
+          <span x-text="quoteError ? 'quotes unavailable' : (marketOpen ? 'live' : 'market closed')"></span>
+          <span class="ml-auto mono" x-show="quoteAt" x-text="fmtClock(quoteAt)"></span>
+        </div>
+      </div>
+
+      <button type="button" class="px-3 pb-2 w-full text-left hover:bg-surface-2 rounded transition-colors group"
+              x-show="spend.cap" @click="openSpend()" title="Spend detail: today's analyst passes">
+        <div class="flex items-center gap-1.5 text-[11px] text-ink-400">
+          <i data-lucide="dollar-sign" class="w-3 h-3"></i>
+          <span>Spend</span>
+          <i data-lucide="chevron-right" class="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+          <span class="ml-auto mono" :class="spendClass" x-text="money(spend.spent) + ' / ' + money(spend.cap)"></span>
+        </div>
+        <div class="mt-1 h-1 rounded bg-surface-3 overflow-hidden">
+          <div class="h-full rounded transition-all" :class="spendBarClass" :style="'width:' + spendPct + '%'"></div>
+        </div>
+      </button>
+
+      <div class="border-t border-line px-3 py-2.5">
+        <div class="text-[10px] text-ink-400 leading-snug mb-2">Framework, not advice. Nothing here places orders.</div>
+        <button @click="clearToken()" class="btn btn-ghost btn-sm w-full justify-start">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i> Clear token
+        </button>
+      </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col min-w-0">
+
+      <!-- ============================ TODAY ============================ -->
+      <template x-if="screen === 'today'">
+        <div class="flex-1 flex flex-col min-w-0">
+          <header class="bg-[#0a0e18] border-b border-line px-6 py-3 flex items-center gap-3 sticky top-0 z-20">
+            <div class="min-w-0">
+              <h1 class="text-sm font-semibold leading-tight" x-text="report ? report.report.as_of : 'No brief yet'"></h1>
+              <div class="text-xs text-ink-600 truncate" x-text="report && report.summary ? report.summary.subject : 'Run the pipeline to produce one'"></div>
+            </div>
+            <div class="ml-auto flex items-center gap-2">
+              <select class="select-input w-[150px] input-sm mono" x-model="selectedDate" @change="loadReport(selectedDate)">
+                <template x-for="r in reports" :key="r.as_of">
+                  <option :value="r.as_of" x-text="r.as_of"></option>
+                </template>
+              </select>
+              <button @click="runNow()" class="btn btn-primary" :disabled="busy.run">
+                <i :data-lucide="busy.run ? 'loader-2' : 'play'" class="w-4 h-4" :class="busy.run ? 'spin' : ''"></i>
+                <span x-text="busy.run ? 'Firing...' : 'Run now'"></span>
+              </button>
+            </div>
+          </header>
+
+          <div class="flex-1 overflow-y-auto p-6 space-y-4">
+            <!-- First run: nothing is scored until the watchlist has tickers -->
+            <div class="card p-4" x-show="!watchlist.length">
+              <div class="text-sm font-semibold mb-1">Start with a watchlist</div>
+              <p class="text-xs text-ink-600 mb-3">Nothing is collected or scored until there are tickers to follow.
+                Seed them from a file, or add them one at a time.</p>
+              <pre class="mono text-[11px] bg-surface-2 border border-line rounded-md p-2 mb-3">cp watchlist.example.yaml watchlist.yaml
+python scripts/seed_watchlist.py</pre>
+              <a href="#watchlist" class="btn btn-primary btn-sm"><i data-lucide="list-checks" class="w-3.5 h-3.5"></i> Open Watchlist</a>
+            </div>
+            <!-- Data freshness banner: only when the last due session did not land cleanly -->
+            <div class="card p-3" x-show="dataHealth && dataHealth.status !== 'ok'"
+                 :style="dataHealth && dataHealth.status === 'error' ? 'border-color: rgba(248,113,113,0.55)' : 'border-color: rgba(245,158,11,0.55)'">
+              <div class="flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-4 h-4" :style="dataHealth && dataHealth.status === 'error' ? 'color:#f87171' : 'color:#f59e0b'"></i>
+                <span class="text-xs font-semibold" :style="dataHealth && dataHealth.status === 'error' ? 'color:#f87171' : 'color:#f59e0b'"
+                      x-text="healthHeadline(dataHealth)"></span>
+                <span class="text-[11px] text-ink-400 mono ml-auto" x-text="dataHealth ? 'expected session ' + (dataHealth.expected_session || '?') + ', checked ' + fmtTime(dataHealth.checked_at) : ''"></span>
+              </div>
+              <ul class="mt-1.5 space-y-0.5">
+                <template x-for="c in (dataHealth ? dataHealth.checks : [])" :key="c.key">
+                  <li class="text-xs flex items-center gap-2" :class="c.ok ? 'text-ink-400' : 'text-ink-700'">
+                    <span class="pill" :class="c.ok ? 'pill-flag' : (c.severity === 'error' ? 'pill-risk' : 'pill-warn')" x-text="c.ok ? 'ok' : (c.severity || 'fail')"></span>
+                    <span x-text="c.message"></span>
+                  </li>
+                </template>
+                <li class="text-xs text-ink-700 mono" x-show="dataHealth && !dataHealth.checks.some(c => !c.ok)" x-text="'Status ' + (dataHealth ? dataHealth.status : '') + ' with no failing check. Payload: ' + JSON.stringify(dataHealth)"></li>
+              </ul>
+            </div>
+            <!-- Run health strip -->
+            <div class="card p-3" x-show="report">
+              <div class="flex items-center gap-2 mb-2">
+                <i data-lucide="activity" class="w-4 h-4 text-ink-600"></i>
+                <span class="text-xs font-medium text-ink-700">Run health</span>
+                <span class="text-[11px] text-ink-400 mono ml-auto" x-text="report ? report.report.run_id : ''"></span>
+              </div>
+              <div class="flex flex-wrap gap-1.5" x-show="report && report.health.length">
+                <template x-for="h in (report ? report.health : [])" :key="h.source">
+                  <span class="pill" :class="h.error > 0 ? 'pill-risk' : (h.ok === 0 ? 'pill-warn' : 'pill-flag')"
+                        x-text="h.source + ' ' + h.ok + (h.error ? ' / ' + h.error + ' err' : '') + (h.quota_skip ? ' / ' + h.quota_skip + ' skip' : '')"></span>
+                </template>
+              </div>
+              <div class="text-xs text-ink-400" x-show="report && !report.health.length">No api_usage rows for this run.</div>
+              <div class="flex gap-4 mt-3 pt-3 border-t border-line text-xs text-ink-600">
+                <span>Setups <b class="mono text-ink-900" x-text="report && report.summary ? report.summary.setup_count : 0"></b></span>
+                <span>Risks <b class="mono text-ink-900" x-text="report && report.summary ? report.summary.risk_count : 0"></b></span>
+                <span>Sent <b class="mono text-ink-900" x-text="report && report.report.sent_at ? fmtTime(report.report.sent_at) : 'no'"></b></span>
+              </div>
+            </div>
+
+            <!-- Holdings. Valued against the latest close, so this is live even on a stale brief. -->
+            <div class="card overflow-hidden" x-show="positions.length">
+              <div class="px-4 py-2.5 border-b border-line flex items-center gap-2">
+                <i data-lucide="wallet" class="w-4 h-4 text-ink-600"></i>
+                <span class="text-xs font-medium text-ink-700">Holdings</span>
+                <span class="text-[11px] text-ink-400 mono" x-text="positions.length + ' positions'"></span>
+                <span class="text-[11px] ml-auto" :class="liveHoldings.anyLive ? 'text-ok' : 'text-ink-400'"
+                      x-text="liveHoldings.anyLive
+                        ? (marketOpen ? 'live, ' : 'last trade, ') + fmtClock(quoteAt)
+                        : (posAsOf ? 'valued at ' + posAsOf + ' close' : '')"></span>
+                <button @click="newPosition()" class="btn btn-ghost btn-sm ml-2" title="Add a position you bought">
+                  <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add position
+                </button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th class="num">Shares</th><th class="num">Avg cost</th><th class="num">Last</th>
+                      <th class="num">Value</th><th class="num">Gain</th><th class="num">Gain %</th>
+                      <th class="num">Day</th><th class="num">Weight</th><th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="h in liveHoldings.rows" :key="h.ticker">
+                      <tr>
+                        <td class="mono font-medium cursor-pointer hover:text-brand-600" @click="openTicker(h.ticker)">
+                          <span x-text="h.ticker"></span>
+                          <div class="text-[10px] text-ink-400 font-sans truncate max-w-[140px]" x-text="h.name || ''"></div>
+                        </td>
+                        <td class="num mono" x-text="num(h.qty, 3)"></td>
+                        <td class="num" x-text="money(h.avg_cost)"></td>
+                        <td class="num" :class="h.live ? 'text-brand-600' : ''" x-text="money(h.last_close)"></td>
+                        <td class="num font-medium" x-text="money(h.market_value)"></td>
+                        <td class="num" :class="signClass(h.gain)" x-text="money(h.gain)"></td>
+                        <td class="num" :class="signClass(h.gain_pct)" x-text="pct(h.gain_pct)"></td>
+                        <td class="num" :class="signClass(h.day_change)" x-text="money(h.day_change)"></td>
+                        <td class="num" x-text="pct(h.weight)"></td>
+                        <td>
+                          <button class="btn btn-ghost btn-sm" title="Edit position" @click="openPosition(h)">
+                            <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    </template>
+                    <tr class="border-t-2 border-line font-medium">
+                      <td>Total</td>
+                      <td class="num"></td><td class="num"></td><td class="num"></td>
+                      <td class="num" x-text="money(liveHoldings.total.market_value)"></td>
+                      <td class="num" :class="signClass(liveHoldings.total.gain)" x-text="money(liveHoldings.total.gain)"></td>
+                      <td class="num" :class="signClass(liveHoldings.total.gain_pct)" x-text="pct(liveHoldings.total.gain_pct)"></td>
+                      <td class="num" :class="signClass(liveHoldings.total.day_change)" x-text="money(liveHoldings.total.day_change)"></td>
+                      <td class="num"></td><td></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="px-4 py-2 border-t border-line text-[11px] text-ink-400">
+                Cost basis <span class="mono" x-text="money(liveHoldings.total.cost_basis)"></span>. Weight is share of equity, cash not modelled.
+              </div>
+            </div>
+
+            <!-- Entry watch: anything at enter or near, by rule or by the analyst -->
+            <div class="card overflow-hidden" x-show="entries.length">
+              <div class="px-4 py-2.5 border-b border-line flex items-center gap-2">
+                <i data-lucide="crosshair" class="w-4 h-4 text-ink-600"></i>
+                <span class="text-xs font-medium text-ink-700">Entry watch</span>
+                <span class="text-[11px] text-ink-400 mono" x-text="liveEntries.length + ' watching'"></span>
+                <span class="text-[11px] text-ink-600 ml-auto" x-show="entryLastPass" x-text="'Entry pass run ' + (entryLastPass ? fmtTime(entryLastPass.finished_at || entryLastPass.created_at) : '') + (entryLastPass && entryLastPass.cost_usd != null ? ', $' + Number(entryLastPass.cost_usd).toFixed(2) : '')"></span>
+                <span class="text-[11px] text-ink-400" x-show="entryRunning.length"><i data-lucide="loader-2" class="w-3 h-3 inline spin"></i> analyst signalling</span>
+                <a href="#entries" class="text-[11px] text-brand-600 hover:underline ml-2">Open list</a>
+              </div>
+              <div class="overflow-x-auto" x-show="hotEntries.length">
+                <table class="data-table">
+                  <thead>
+                    <tr><th>Ticker</th><th class="num">Last</th><th>Zone</th><th class="num">Dist</th><th>Rule</th><th>AI signal</th><th>Read</th></tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="e in hotEntries" :key="'he' + e.ticker">
+                      <tr class="cursor-pointer" @click="window.location.hash = 'entries'; entryOpen = e.ticker">
+                        <td class="mono font-medium hover:text-brand-600" @click.stop="openTicker(e.ticker)">
+                          <span x-text="e.ticker"></span>
+                          <div class="text-[10px] text-ink-400 font-sans truncate max-w-[140px]" x-text="e.name || ''"></div>
+                        </td>
+                        <td class="num" :class="quoteFor(e.ticker) ? 'text-brand-600' : ''" x-text="num(livePrice(e), 2)"></td>
+                        <td class="mono text-xs"><span x-text="zoneText(e)"></span><span x-show="e.zone_source === 'analyst' && e.zone_low != null" class="pill pill-warn ml-1">AI</span><span x-show="e.kind === 'add'" class="pill pill-tag ml-1">add</span></td>
+                        <td class="num" :class="distClass(e)" x-text="distText(e)"></td>
+                        <td><span class="pill" :class="sigClass(e.rule.signal)" x-text="e.rule.signal"></span></td>
+                        <td>
+                          <span x-show="e.signal" class="pill" :class="sigClass(e.signal)" x-text="e.signal + (e.confidence != null ? ' ' + Number(e.confidence).toFixed(2) : '')"></span>
+                          <span x-show="!e.signal" class="text-[11px] text-ink-400">not yet</span>
+                        </td>
+                        <td class="text-xs text-ink-700" :title="e.summary || ''"><div class="max-w-[480px] truncate" x-text="e.summary || e.rule.reasons.slice(0, 2).join('; ')"></div></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+              <div class="px-4 py-3 text-xs text-ink-400" x-show="!hotEntries.length">Nothing at enter or near. Everything on the list is waiting.</div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-4 items-start">
+              <!-- Brief -->
+              <div class="col-span-2 card p-6">
+                <div x-show="!report" class="text-sm text-ink-400 py-10 text-center">No brief stored yet.</div>
+                <div class="md-prose" x-show="report" x-html="mdHtml(report ? report.report.markdown : '')"></div>
+              </div>
+
+              <!-- Analyst -->
+              <div class="card p-4">
+                <div class="flex items-center gap-2 mb-3">
+                  <i data-lucide="brain" class="w-4 h-4 text-brand-600"></i>
+                  <span class="text-sm font-semibold">AI analysis</span>
+                  <button @click="reanalyze()" class="btn btn-secondary btn-sm ml-auto" :disabled="busy.analyze || analysisBusy()"
+                          title="Run the analyst again for this brief">
+                    <i :data-lucide="analysisBusy() ? 'loader-2' : 'sparkles'" class="w-3.5 h-3.5" :class="analysisBusy() ? 'spin' : ''"></i>
+                    <span x-text="analysisBusy() ? 'Running' : (analysis ? 'Re-analyze' : 'Analyze')"></span>
+                  </button>
+                </div>
+
+                <template x-if="analysis">
+                  <div>
+                    <div class="flex items-center gap-2 mb-3 flex-wrap">
+                      <span class="pill" :class="analysis.status === 'ok' ? 'pill-flag' : (analysisBusy() ? 'pill-bench' : 'pill-warn')" x-text="analysis.status"></span>
+                      <span class="text-[11px] text-ink-400 mono" x-text="analysis.model || ''"></span>
+                      <span class="text-[11px] text-ink-400" x-show="analysis.cost_usd != null" x-text="'$' + Number(analysis.cost_usd).toFixed(3)"></span>
+                      <span class="text-[11px] text-ink-400" x-show="analysis.turns" x-text="analysis.turns + ' turns, ' + (analysis.tool_calls || 0) + ' tool calls'"></span>
+                      <span class="text-[11px] text-ink-600 w-full" x-text="'Daily analysis of the ' + analysis.as_of + ' brief, run ' + fmtTime(analysis.finished_at || analysis.created_at)"></span>
+                    </div>
+
+                    <div x-show="analysis.error" class="text-xs text-danger mb-2" x-text="analysis.error"></div>
+
+                    <template x-if="analysis.output">
+                      <div class="space-y-5 text-[13px]">
+                        <div>
+                          <div class="label">Market read</div>
+                          <template x-for="(c, i) in analysis.output.market_read" :key="'mr' + i">
+                            <p class="mb-1.5 leading-relaxed"><span x-text="c.text"></span> <span x-html="chips(c)"></span></p>
+                          </template>
+                        </div>
+
+                        <div x-show="analysis.output.holdings.length">
+                          <div class="label">Holdings</div>
+                          <template x-for="h in analysis.output.holdings" :key="'h' + h.ticker">
+                            <div class="mb-3 pb-3 border-b border-line last:border-0">
+                              <div class="flex items-center gap-2 mb-1">
+                                <span class="mono font-medium cursor-pointer hover:text-brand-600" @click="openTicker(h.ticker)" x-text="h.ticker"></span>
+                                <span class="pill" :class="stanceClass(h.stance)" x-text="h.stance"></span>
+                                <span class="text-[11px] text-ink-400" x-text="'confidence ' + Number(h.confidence).toFixed(2)"></span>
+                              </div>
+                              <ul class="list-disc pl-4 space-y-1.5 leading-relaxed">
+                                <template x-for="(c, i) in h.rationale" :key="'hr' + h.ticker + i">
+                                  <li><span x-text="c.text"></span> <span x-html="chips(c)"></span></li>
+                                </template>
+                                <li x-show="h.invalidation && h.invalidation.text" class="text-ink-600">
+                                  <span class="font-medium">Invalidation:</span> <span x-text="h.invalidation.text"></span> <span x-html="chips(h.invalidation)"></span>
+                                </li>
+                              </ul>
+                            </div>
+                          </template>
+                        </div>
+
+                        <div x-show="analysis.output.entries.length">
+                          <div class="label">Entries</div>
+                          <template x-for="e in analysis.output.entries" :key="'e' + e.ticker + e.setup">
+                            <div class="mb-3 pb-3 border-b border-line last:border-0">
+                              <div class="flex items-center gap-2 mb-1 flex-wrap">
+                                <span class="mono font-medium cursor-pointer hover:text-brand-600" @click="openTicker(e.ticker)" x-text="e.ticker"></span>
+                                <span class="text-[11px] mono" :class="e.entry_zone.ungrounded ? 'text-danger' : 'text-ink-600'"
+                                      x-text="'zone ' + num(e.entry_zone.low) + ' to ' + num(e.entry_zone.high) + (e.entry_zone.ungrounded ? ' (ungrounded)' : '')"></span>
+                                <span class="text-[11px] text-ink-400" x-text="e.horizon + ', confidence ' + Number(e.confidence).toFixed(2)"></span>
+                              </div>
+                              <p class="text-[12px] text-ok leading-relaxed mb-1.5" x-text="e.setup"></p>
+                              <ul class="list-disc pl-4 space-y-1.5 leading-relaxed">
+                                <template x-for="(c, i) in e.rationale" :key="'er' + e.ticker + i">
+                                  <li><span x-text="c.text"></span> <span x-html="chips(c)"></span></li>
+                                </template>
+                                <li x-show="e.invalidation && e.invalidation.text" class="text-ink-600">
+                                  <span class="font-medium">Invalidation:</span> <span x-text="e.invalidation.text"></span> <span x-html="chips(e.invalidation)"></span>
+                                </li>
+                              </ul>
+                            </div>
+                          </template>
+                        </div>
+
+                        <div x-show="analysis.output.avoid.length">
+                          <div class="label">Avoid</div>
+                          <ul class="list-disc pl-4 space-y-1.5 leading-relaxed">
+                            <template x-for="a in analysis.output.avoid" :key="'a' + a.ticker">
+                              <li><span class="mono font-medium cursor-pointer hover:text-brand-600" @click="openTicker(a.ticker)" x-text="a.ticker"></span>: <span x-text="a.reason.text"></span> <span x-html="chips(a.reason)"></span></li>
+                            </template>
+                          </ul>
+                        </div>
+
+                        <div x-show="analysis.output.questions.length">
+                          <div class="label">Open questions</div>
+                          <ul class="list-disc pl-4 text-ink-600 space-y-1.5 leading-relaxed">
+                            <template x-for="(q, i) in analysis.output.questions" :key="'q' + i"><li x-text="q"></li></template>
+                          </ul>
+                        </div>
+
+                        <details x-show="analysis.output.data_gaps.length" class="text-[12px]">
+                          <summary class="cursor-pointer text-ink-600" x-text="analysis.output.data_gaps.length + ' data gaps and stripped claims'"></summary>
+                          <ul class="list-disc pl-4 text-ink-400 mt-1 space-y-1.5 leading-relaxed">
+                            <template x-for="(g, i) in analysis.output.data_gaps" :key="'g' + i"><li x-text="g"></li></template>
+                          </ul>
+                        </details>
+
+                        <div class="text-[11px] text-ink-400 italic" x-text="analysis.output.disclaimer"></div>
+
+                        <div class="flex items-center gap-2 pt-2 border-t border-line">
+                          <button class="btn btn-secondary btn-sm" :class="fbVote(analysis) === 'up' ? 'ring-1 ring-brand-600' : ''" @click="feedback('up')" :disabled="busy.feedback">
+                            <i data-lucide="thumbs-up" class="w-3.5 h-3.5"></i> Useful
+                          </button>
+                          <button class="btn btn-secondary btn-sm" :class="fbVote(analysis) === 'down' ? 'ring-1 ring-danger' : ''" @click="feedback('down')" :disabled="busy.feedback">
+                            <i data-lucide="thumbs-down" class="w-3.5 h-3.5"></i> Not useful
+                          </button>
+                          <input class="text-input input-sm flex-1" placeholder="note (optional)" x-model="fbNote" @keydown.enter="feedback(fbVote(analysis) || 'up')">
+                          <span class="text-[11px] text-ink-400" x-show="analysis.feedback && analysis.feedback.length" x-text="analysis.feedback.length + ' rated'"></span>
+                        </div>
+                      </div>
+                    </template>
+
+                    <template x-if="!analysis.output && analysisBusy()">
+                      <div class="text-xs text-ink-400">The analyst is reading the database. Usually under two minutes.</div>
+                    </template>
+                    <template x-if="!analysis.output && !analysisBusy() && analysis.markdown">
+                      <div class="md-prose text-[13px]" x-html="mdHtml(analysis.markdown)"></div>
+                    </template>
+                  </div>
+                </template>
+
+                <template x-if="!analysis">
+                  <div class="text-xs text-ink-400 leading-relaxed">
+                    Not run for this brief. The Daily workflow posts to the analyst at the end of every run; Analyze runs it now.
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Score table behind the brief -->
+            <div class="card overflow-hidden" x-show="scores.length">
+              <div class="px-4 py-2.5 border-b border-line flex items-center gap-2">
+                <i data-lucide="table" class="w-4 h-4 text-ink-600"></i>
+                <span class="text-xs font-medium text-ink-700">Scores for this brief</span>
+                <span class="text-[11px] text-ink-400 ml-auto">Click a row for its evidence</span>
+              </div>
+              <div class="overflow-x-auto max-h-[520px]">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Ticker</th><th>Tags</th>
+                      <th class="num">Close</th><th class="num">1d</th><th class="num">5d</th><th class="num">20d</th>
+                      <th class="num">RSI</th><th class="num">Comp</th><th>Flags</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="s in scores" :key="s.ticker">
+                      <tr class="cursor-pointer" @click="drawer = s">
+                        <td class="mono font-medium hover:text-brand-600" @click.stop="openTicker(s.ticker)" x-text="s.ticker"></td>
+                        <td><template x-for="t in (s.tags || [])" :key="t"><span class="pill mr-1" :class="tagClass(t)" x-text="t"></span></template></td>
+                        <td class="num" x-text="num(s.close, 2)"></td>
+                        <td class="num" :class="signClass(s.ret_1d)" x-text="pct(s.ret_1d)"></td>
+                        <td class="num" :class="signClass(s.ret_5d)" x-text="pct(s.ret_5d)"></td>
+                        <td class="num" :class="signClass(s.ret_20d)" x-text="pct(s.ret_20d)"></td>
+                        <td class="num" x-text="num(s.rsi14, 0)"></td>
+                        <td class="num font-medium" x-text="num(s.composite, 1)"></td>
+                        <td>
+                          <template x-for="f in (s.flags || [])" :key="f"><span class="pill pill-flag mr-1" x-text="f"></span></template>
+                          <template x-for="f in (s.risks || [])" :key="f"><span class="pill pill-risk mr-1" x-text="f"></span></template>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- =========================== REPORTS =========================== -->
+      <template x-if="screen === 'reports'">
+        <div class="flex-1 flex flex-col min-w-0">
+          <header class="bg-[#0a0e18] border-b border-line px-6 py-3 flex items-center sticky top-0 z-20">
+            <h1 class="text-sm font-semibold">Reports</h1>
+            <span class="ml-2 text-xs text-ink-400" x-text="reports.length + ' stored'"></span>
+            <button @click="loadReports()" class="btn btn-secondary btn-sm ml-auto"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh</button>
+          </header>
+          <div class="flex-1 overflow-y-auto p-6">
+            <div class="card overflow-hidden">
+              <table class="data-table">
+                <thead>
+                  <tr><th>Date</th><th>Subject</th><th class="num">Setups</th><th class="num">Risks</th><th>Analysis</th><th>Sent</th><th></th></tr>
+                </thead>
+                <tbody>
+                  <template x-for="r in reports" :key="r.as_of">
+                    <tr>
+                      <td class="mono font-medium" x-text="r.as_of"></td>
+                      <td class="whitespace-normal max-w-[520px] text-ink-700" x-text="r.subject"></td>
+                      <td class="num" x-text="r.setup_count"></td>
+                      <td class="num" x-text="r.risk_count"></td>
+                      <td><span class="pill" :class="r.analysis_status === 'ok' ? 'pill-flag' : 'pill-bench'" x-text="r.analysis_status || 'none'"></span></td>
+                      <td class="text-xs text-ink-600" x-text="r.sent_at ? fmtTime(r.sent_at) : 'not sent'"></td>
+                      <td><button class="btn btn-secondary btn-sm" @click="openReport(r.as_of)">Open</button></td>
+                    </tr>
+                  </template>
+                  <tr x-show="!reports.length"><td colspan="7" class="text-center text-ink-400 py-8">No reports stored.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ========================== WATCHLIST ========================== -->
+      <template x-if="screen === 'watchlist'">
+        <div class="flex-1 flex flex-col min-w-0">
+          <header class="bg-[#0a0e18] border-b border-line px-6 py-3 flex items-center gap-3 sticky top-0 z-20">
+            <h1 class="text-sm font-semibold">Watchlist</h1>
+            <span class="text-xs text-ink-400" x-text="counts.active + ' active, ' + counts.retired + ' retired'"></span>
+            <input x-model="wlSearch" class="input input-sm w-[200px] ml-4" placeholder="Filter ticker or name" />
+            <select class="select-input input-sm w-[140px]" x-model="wlTag">
+              <option value="">All tags</option>
+              <template x-for="t in allTags" :key="t"><option :value="t" x-text="t"></option></template>
+            </select>
+            <label class="flex items-center gap-1.5 text-xs text-ink-600">
+              <input type="checkbox" x-model="wlShowRetired" /> Show retired
+            </label>
+            <div class="ml-auto flex gap-2">
+              <button @click="loadWatchlist()" class="btn btn-secondary btn-sm"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i></button>
+              <button @click="openAdd()" class="btn btn-primary"><i data-lucide="plus" class="w-4 h-4"></i> Add ticker</button>
+            </div>
+          </header>
+
+          <div class="flex-1 overflow-auto">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th class="sortable" @click="sortBy('ticker')">Ticker</th>
+                  <th>Tags</th>
+                  <th class="num sortable" @click="sortBy('close')">Close</th>
+                  <th class="num sortable" @click="sortBy('ret_1d')">1d</th>
+                  <th class="num sortable" @click="sortBy('ret_5d')">5d</th>
+                  <th class="num sortable" @click="sortBy('ret_20d')">20d</th>
+                  <th class="num sortable" @click="sortBy('rsi14')">RSI</th>
+                  <th class="num sortable" @click="sortBy('news_score')">Sent</th>
+                  <th class="num sortable" @click="sortBy('composite')">Comp</th>
+                  <th>Flags</th>
+                  <th class="num sortable" @click="sortBy('qty')">Shares</th>
+                  <th class="num sortable" @click="sortBy('avg_cost')">Avg cost</th>
+                  <th class="num sortable" @click="sortBy('target_entry')">Target</th>
+                  <th>Notes</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="w in filteredWatchlist" :key="w.ticker">
+                  <tr :class="w.active ? '' : 'opacity-50'">
+                    <td class="mono font-medium cursor-pointer hover:text-brand-600" @click="openTicker(w.ticker)">
+                      <span x-text="w.ticker"></span>
+                      <div class="text-[10px] text-ink-400 font-sans truncate max-w-[140px]" x-text="w.name || ''"></div>
+                    </td>
+                    <td><template x-for="t in (w.tags || [])" :key="t"><span class="pill mr-1" :class="tagClass(t)" x-text="t"></span></template></td>
+                    <td class="num" :class="quoteFor(w.ticker) ? 'text-brand-600' : ''"
+                        :title="quoteFor(w.ticker) ? 'last trade ' + fmtClock(quoteAt) : 'stored close'"
+                        x-text="num(quoteFor(w.ticker) ? quoteFor(w.ticker).price : w.close, 2)"></td>
+                    <td class="num" :class="signClass(quoteFor(w.ticker) ? quoteFor(w.ticker).change_pct : w.ret_1d)"
+                        x-text="pct(quoteFor(w.ticker) ? quoteFor(w.ticker).change_pct : w.ret_1d)"></td>
+                    <td class="num" :class="signClass(w.ret_5d)" x-text="pct(w.ret_5d)"></td>
+                    <td class="num" :class="signClass(w.ret_20d)" x-text="pct(w.ret_20d)"></td>
+                    <td class="num" x-text="num(w.rsi14, 0)"></td>
+                    <td class="num" :class="signClass(w.news_score)" x-text="num(w.news_score, 2)"></td>
+                    <td class="num font-medium cursor-pointer hover:text-brand-600" @click="drawer = w" x-text="num(w.composite, 1)"></td>
+                    <td>
+                      <template x-for="f in (w.flags || [])" :key="f"><span class="pill pill-flag mr-1" x-text="f"></span></template>
+                      <template x-for="f in (w.risks || [])" :key="f"><span class="pill pill-risk mr-1" x-text="f"></span></template>
+                    </td>
+                    <td class="num mono cursor-pointer hover:text-brand-600" @click="openPosition(w)"
+                        :title="w.qty ? 'Edit position' : 'Add position'"
+                        :class="w.qty ? '' : 'text-ink-400'"
+                        x-text="w.qty ? num(w.qty, 3) : '-'"></td>
+                    <td class="num cursor-pointer hover:text-brand-600" @click="openPosition(w)"
+                        x-text="w.qty ? money(w.avg_cost) : '-'"></td>
+                    <td class="num">
+                      <input class="input input-sm mono text-right w-[80px]" type="number" step="0.01"
+                             :value="w.target_entry" @change="patch(w, { target_entry: parseFloat($event.target.value) })" />
+                    </td>
+                    <td class="whitespace-normal max-w-[220px]">
+                      <input class="input input-sm" :value="w.notes || ''" placeholder="-"
+                             @change="patch(w, { notes: $event.target.value })" />
+                    </td>
+                    <td class="whitespace-nowrap">
+                      <button class="btn btn-ghost btn-sm" :title="w.qty ? 'Edit position' : 'Add position'" @click="openPosition(w)">
+                        <i :data-lucide="w.qty ? 'wallet' : 'plus-circle'" class="w-3.5 h-3.5"></i>
+                      </button>
+                      <button class="btn btn-ghost btn-sm" title="Edit tags, name, target" @click="openEdit(w)">
+                        <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                      </button>
+                      <button class="btn btn-ghost btn-sm" :title="w.active ? 'Retire' : 'Reactivate'"
+                              @click="patch(w, { active: !w.active })">
+                        <i :data-lucide="w.active ? 'archive' : 'rotate-ccw'" class="w-3.5 h-3.5"></i>
+                      </button>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="!filteredWatchlist.length && watchlist.length"><td colspan="16" class="text-center text-ink-400 py-8">Nothing matches.</td></tr>
+                <tr x-show="!watchlist.length">
+                  <td colspan="16" class="text-center text-ink-400 py-10">
+                    <div class="text-sm text-ink-700 mb-1">Your watchlist is empty.</div>
+                    <div class="text-xs">Add a ticker above, or seed the list from a file:
+                      <span class="mono">cp watchlist.example.yaml watchlist.yaml</span> then
+                      <span class="mono">python scripts/seed_watchlist.py</span>.</div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- =========================== ENTRIES =========================== -->
+      <template x-if="screen === 'entries'">
+        <div class="flex-1 flex flex-col min-w-0">
+          <header class="bg-[#0a0e18] border-b border-line px-6 py-3 flex items-center gap-3 sticky top-0 z-20">
+            <div class="min-w-0">
+              <h1 class="text-sm font-semibold leading-tight">Entry watch</h1>
+              <div class="text-xs text-ink-600" x-text="entryCounts.watching + ' watching, ' + entryCounts.triggered + ' triggered, ' + entryCounts.entered + ' entered'"></div>
+            </div>
+            <label class="flex items-center gap-1.5 text-xs text-ink-600 ml-4">
+              <input type="checkbox" x-model="entryShowAll" @change="loadEntries()" /> Show entered and dropped
+            </label>
+            <span class="text-[11px] text-ink-600 ml-3" x-show="entryLastPass" :title="entryLastPass ? 'analysis ' + entryLastPass.id + ', ' + entryLastPass.model + ', ' + entryLastPass.status : ''"
+                  x-text="entryLastPass ? 'Last entry pass ' + fmtTime(entryLastPass.finished_at || entryLastPass.created_at) + ' on ' + entryLastPass.as_of + ' data' + (entryLastPass.cost_usd != null ? ', $' + Number(entryLastPass.cost_usd).toFixed(2) : '') : ''"></span>
+            <span class="text-[11px] text-ink-400 ml-2" x-show="entryRunning.length"><i data-lucide="loader-2" class="w-3 h-3 inline spin"></i> <span x-text="entryRunning.length + ' pass' + (entryRunning.length === 1 ? '' : 'es') + ' running'"></span></span>
+            <div class="ml-auto flex gap-2">
+              <button @click="loadEntries()" class="btn btn-secondary btn-sm"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i></button>
+              <button @click="signalEntries()" class="btn btn-secondary" :disabled="busy.signal || !liveEntries.length" title="Run the analyst over every live ticker now">
+                <i :data-lucide="busy.signal ? 'loader-2' : 'sparkles'" class="w-4 h-4" :class="busy.signal ? 'spin' : ''"></i> Signal all
+              </button>
+              <button @click="openEntry()" class="btn btn-primary"><i data-lucide="plus" class="w-4 h-4"></i> Watch ticker</button>
+            </div>
+          </header>
+
+          <div class="flex-1 overflow-auto">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Ticker</th><th>Status</th>
+                  <th class="num">Last</th><th class="num">1d</th>
+                  <th>Zone</th><th class="num">Dist</th><th class="num" title="Live price against the average cost, add rows only">vs cost</th><th class="num">Inval</th>
+                  <th class="num">RSI</th><th>Trend</th><th>Rule</th>
+                  <th>AI signal</th><th>Zone check</th><th>Signalled</th>
+                  <th>Summary</th><th></th>
+                </tr>
+              </thead>
+              <template x-for="e in entries" :key="'en' + e.ticker">
+                <tbody>
+                  <tr :class="[e.status === 'dropped' ? 'opacity-50' : '', entryOpen === e.ticker ? 'bg-surface-2' : '']">
+                    <td class="mono font-medium cursor-pointer hover:text-brand-600" @click="openTicker(e.ticker)">
+                      <span x-text="e.ticker"></span>
+                      <div class="text-[10px] text-ink-400 font-sans truncate max-w-[140px]" x-text="e.name || ''"></div>
+                    </td>
+                    <td class="whitespace-nowrap"><span class="pill" :class="statusClass(e.status)" x-text="e.status"></span>
+                      <span x-show="e.kind === 'add'" class="pill pill-tag ml-1" :title="'Held ' + num(e.qty, 3) + ' at ' + num(e.avg_cost, 2) + '. Zone tops out at ' + num(e.zone_cap, 2) + ' so a fill lowers the average.'">add</span></td>
+                    <td class="num" :class="quoteFor(e.ticker) ? 'text-brand-600' : ''"
+                        :title="quoteFor(e.ticker) ? 'last trade ' + fmtClock(quoteAt) : 'close ' + (e.price_as_of || '')"
+                        x-text="num(livePrice(e), 2)"></td>
+                    <td class="num" :class="signClass(quoteFor(e.ticker) ? quoteFor(e.ticker).change_pct : e.ret_1d)"
+                        x-text="pct(quoteFor(e.ticker) ? quoteFor(e.ticker).change_pct : e.ret_1d)"></td>
+                    <td class="mono text-xs cursor-pointer hover:text-brand-600" @click="openEntry(e)">
+                      <span x-text="zoneText(e)"></span>
+                      <span x-show="e.zone_source === 'analyst' && e.zone_low != null" class="pill pill-warn ml-1" title="Proposed by the analyst. Edit the zone to make it yours.">AI</span>
+                      <span x-show="e.zone_low == null && e.zone_high == null && entryRunning.length" class="text-ink-400 font-sans ml-1"><i data-lucide="loader-2" class="w-3 h-3 inline spin"></i> proposing</span>
+                    </td>
+                    <td class="num" :class="distClass(e)" x-text="distText(e)"></td>
+                    <td class="num" :class="costClass(e)" :title="e.kind === 'add' ? 'average cost ' + num(e.avg_cost, 2) : ''" x-text="costText(e)"></td>
+                    <td class="num mono text-xs" :class="e.rule.below_invalidation ? 'text-danger' : ''" x-text="e.invalidation ? num(e.invalidation, 2) : '-'"></td>
+                    <td class="num" x-text="num(e.rsi14, 0)"></td>
+                    <td class="text-xs" :class="e.rule.trend === 'up' ? 'text-ok' : (e.rule.trend === 'down' ? 'text-danger' : 'text-ink-600')" x-text="e.rule.trend"></td>
+                    <td><span class="pill" :class="sigClass(e.rule.signal)" :title="e.rule.reasons.join('; ')" x-text="e.rule.signal"></span></td>
+                    <td class="cursor-pointer" @click="toggleEntry(e)">
+                      <span x-show="e.signal" class="pill" :class="sigClass(e.signal)" x-text="e.signal + (e.confidence != null ? ' ' + Number(e.confidence).toFixed(2) : '')"></span>
+                      <span x-show="!e.signal" class="text-[11px] text-ink-400">not yet</span>
+                    </td>
+                    <td class="text-xs" :class="e.zone_check === 'holds' ? 'text-ink-600' : (e.zone_check ? 'text-warn' : 'text-ink-400')"
+                        x-text="e.zone_check ? (e.zone_check + (e.suggested_zone ? ' ' + num(e.suggested_zone.low) + '-' + num(e.suggested_zone.high) : '')) : '-'"></td>
+                    <td class="text-xs text-ink-600 whitespace-nowrap" :title="e.signal_at ? ago(e.signal_at) + ' ago, on ' + e.signal_as_of + ' data' : ''" x-text="e.signal_at ? fmtTime(e.signal_at) : '-'"></td>
+                    <td class="text-xs text-ink-700 cursor-pointer" @click="toggleEntry(e)" :title="e.summary || ''">
+                      <div class="max-w-[340px] truncate" x-text="e.summary || e.rule.reasons.slice(0, 2).join('; ')"></div>
+                    </td>
+                    <td class="whitespace-nowrap">
+                      <button class="btn btn-ghost btn-sm" title="Signal this ticker now" @click="signalEntries([e.ticker])" :disabled="busy.signal || e.status === 'entered' || e.status === 'dropped'">
+                        <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                      </button>
+                      <button class="btn btn-ghost btn-sm" title="Edit" @click="openEntry(e)"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+                      <button class="btn btn-ghost btn-sm" :title="e.kind === 'add' ? 'Record an add fill; the row returns to watching for the next dip' : 'Mark entered and record the position'" @click="enterEntry(e)" x-show="e.status !== 'entered' && e.status !== 'dropped'">
+                        <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                      </button>
+                      <button class="btn btn-ghost btn-sm" :title="entryOpen === e.ticker ? 'Collapse' : 'Rationale'" @click="toggleEntry(e)">
+                        <i :data-lucide="entryOpen === e.ticker ? 'chevron-up' : 'chevron-down'" class="w-3.5 h-3.5"></i>
+                      </button>
+                    </td>
+                  </tr>
+                  <tr x-show="entryOpen === e.ticker" class="bg-surface-2">
+                    <td colspan="16" class="whitespace-normal">
+                      <div class="grid grid-cols-3 gap-4 py-2 text-[13px]">
+                        <div class="min-w-0">
+                          <div class="label">Thesis</div>
+                          <p class="text-ink-700 leading-relaxed" x-text="e.thesis || 'none written'"></p>
+                          <div class="label mt-3">Rule read <span class="font-normal text-ink-400" x-text="'at ' + (e.price_as_of || '') + ' close'"></span></div>
+                          <ul class="list-disc pl-4 text-ink-600 space-y-1.5 leading-relaxed">
+                            <template x-for="(r, i) in e.rule.reasons" :key="'rr' + e.ticker + i"><li x-text="r"></li></template>
+                          </ul>
+                          <div class="text-[11px] text-ink-400 mt-2" x-show="e.notes" x-text="e.notes"></div>
+                        </div>
+                        <div class="col-span-2 min-w-0">
+                          <template x-if="e.signal">
+                            <div>
+                              <div class="flex items-center gap-2 mb-2 flex-wrap">
+                                <span class="label mb-0">Analyst</span>
+                                <span class="pill" :class="sigClass(e.signal)" x-text="e.signal"></span>
+                                <span class="text-[11px] text-ink-400" x-text="'confidence ' + Number(e.confidence || 0).toFixed(2) + ', run ' + fmtTime(e.signal_at) + ' on ' + (e.signal_as_of || '') + ' data at ' + num(e.ref_price, 2)"></span>
+                                <span class="text-[11px] text-ink-400 mono" x-text="e.signal_model || ''"></span>
+                                <button class="btn btn-ghost btn-sm ml-auto" @click="loadEntryHistory(e.ticker)"><i data-lucide="history" class="w-3.5 h-3.5"></i> History</button>
+                              </div>
+                              <p class="mb-1.5 text-ink-900" x-text="e.summary"></p>
+                              <ul class="list-disc pl-4 space-y-1.5 leading-relaxed">
+                                <template x-for="(c, i) in (e.rationale || [])" :key="'ec' + e.ticker + i">
+                                  <li><span x-text="c.text"></span> <span x-html="chips(c, e.analysis_id)"></span></li>
+                                </template>
+                                <li x-show="e.signal_invalidation && e.signal_invalidation.text" class="text-ink-600">
+                                  <span class="font-medium">Invalidation:</span> <span x-text="e.signal_invalidation.text"></span> <span x-html="chips(e.signal_invalidation, e.analysis_id)"></span>
+                                </li>
+                              </ul>
+                              <div class="mt-2 text-xs" x-show="e.zone_check && e.zone_check !== 'holds'">
+                                <span class="text-warn font-medium" x-text="'Zone check: ' + (e.zone_check === 'propose' ? 'proposed by the analyst' : e.zone_check)"></span>
+                                <span x-show="e.suggested_zone" class="mono text-ink-600" x-text="' ' + num(e.suggested_zone && e.suggested_zone.low) + ' to ' + num(e.suggested_zone && e.suggested_zone.high) + (e.suggested_invalidation != null ? ', invalidation ' + num(e.suggested_invalidation) : '') + (e.suggested_zone && e.suggested_zone.ungrounded ? ' (ungrounded, cannot apply)' : '')"></span>
+                                <button x-show="canApplyZone(e)" class="btn btn-secondary btn-sm ml-2" @click="acceptZone(e)" :disabled="busy.entry" title="Use this as the row's zone; you can still edit it">
+                                  <i data-lucide="check" class="w-3.5 h-3.5"></i> Apply zone
+                                </button>
+                              </div>
+                              <div class="mt-2" x-show="(e.watch_for || []).length">
+                                <div class="label">Watch for</div>
+                                <ul class="list-disc pl-4 text-ink-600 space-y-1.5 leading-relaxed">
+                                  <template x-for="(w, i) in (e.watch_for || [])" :key="'wf' + e.ticker + i"><li x-text="w"></li></template>
+                                </ul>
+                              </div>
+                            </div>
+                          </template>
+                          <template x-if="!e.signal">
+                            <div class="text-xs text-ink-400">No analyst signal stored yet. It runs after every daily analysis, or press the sparkle.</div>
+                          </template>
+                          <template x-if="esig && esig.ticker === e.ticker">
+                            <div class="mt-3 pt-3 border-t border-line">
+                              <div class="label" x-text="'Signal history, ' + esig.signals.length + ' rows'"></div>
+                              <table class="data-table">
+                                <thead><tr><th>When</th><th>As of</th><th>Signal</th><th class="num">Conf</th><th class="num">Price</th><th>Zone check</th><th>Summary</th><th class="num">Cost</th></tr></thead>
+                                <tbody>
+                                  <template x-for="s in esig.signals" :key="'sh' + s.id">
+                                    <tr>
+                                      <td class="text-xs" x-text="fmtTime(s.created_at)"></td>
+                                      <td class="mono text-xs" x-text="s.as_of"></td>
+                                      <td><span class="pill" :class="sigClass(s.signal)" x-text="s.signal"></span></td>
+                                      <td class="num" x-text="num(s.confidence, 2)"></td>
+                                      <td class="num" x-text="num(s.ref_price, 2)"></td>
+                                      <td class="text-xs" x-text="s.zone_check || '-'"></td>
+                                      <td class="text-xs" :title="s.summary || ''"><div class="max-w-[420px] truncate" x-text="s.summary"></div></td>
+                                      <td class="num text-xs" x-text="s.cost_usd != null ? '$' + Number(s.cost_usd).toFixed(3) : '-'"></td>
+                                    </tr>
+                                  </template>
+                                </tbody>
+                              </table>
+                              <div class="label mt-3">Edits</div>
+                              <template x-for="h in esig.history" :key="'eh' + h.id">
+                                <div class="flex gap-3 text-[11px] text-ink-600">
+                                  <span x-text="fmtTime(h.changed_at)"></span>
+                                  <span class="pill" :class="statusClass(h.status)" x-text="h.status"></span>
+                                  <span class="mono" x-text="(h.zone_low != null ? num(h.zone_low) + '-' + num(h.zone_high) : 'no zone') + (h.invalidation != null ? ', inval ' + num(h.invalidation) : '')"></span>
+                                  <span x-text="h.changed_by"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </template>
+              <tbody x-show="!entries.length">
+                <tr><td colspan="15" class="text-center text-ink-400 py-10">
+                  Nothing on the entry watch list. Add a ticker; the analyst proposes a buy zone and signals it after each daily run.
+                </td></tr>
+              </tbody>
+            </table>
+            <div class="px-6 py-3 text-[11px] text-ink-400">
+              Rule reads use the stored close; distance uses the live price when the market is open. Framework, not advice.
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- =========================== TICKER ============================ -->
+      <template x-if="screen === 'ticker'">
+        <div class="flex-1 flex flex-col min-w-0">
+          <header class="bg-[#0a0e18] border-b border-line px-6 py-3 flex items-center gap-3 sticky top-0 z-20">
+            <button @click="history.length > 1 ? history.back() : (window.location.hash = 'watchlist')"
+                    class="btn btn-ghost btn-icon" title="Back">
+              <i data-lucide="arrow-left" class="w-4 h-4"></i>
+            </button>
+            <div class="min-w-0">
+              <h1 class="text-sm font-semibold leading-tight mono" x-text="tickerSym"></h1>
+              <div class="text-xs text-ink-600 truncate" x-text="tk.row ? (tk.row.name || 'no name on file') : 'loading...'"></div>
+            </div>
+            <div class="flex gap-1 ml-2">
+              <template x-for="t in (tk.row ? (tk.row.tags || []) : [])" :key="t">
+                <span class="pill" :class="tagClass(t)" x-text="t"></span>
+              </template>
+              <span x-show="tk.row && !tk.row.active" class="pill pill-risk">retired</span>
+            </div>
+            <div class="ml-auto flex items-center gap-2">
+              <div class="flex rounded-md border border-line overflow-hidden">
+                <template x-for="r in tkRanges" :key="r.days">
+                  <button class="px-2.5 py-1 text-xs border-r border-line last:border-r-0"
+                          :class="tkDays === r.days ? 'bg-brand-600 text-[#04141f]' : 'bg-surface-2 text-ink-600 hover:bg-surface-3'"
+                          @click="setTickerRange(r.days)" x-text="r.label"></button>
+                </template>
+              </div>
+              <span x-show="quoteFor(tickerSym)" class="pill"
+                    :class="marketOpen ? 'pill-flag' : 'pill-bench'"
+                    x-text="(marketOpen ? 'live ' : 'last ') + num(quoteFor(tickerSym) ? quoteFor(tickerSym).price : null, 2)
+                            + ' @ ' + fmtClock(quoteAt)"></span>
+              <button class="btn btn-secondary btn-sm" disabled title="Phase C">
+                <i data-lucide="brain" class="w-3.5 h-3.5"></i> Ask the analyst
+              </button>
+            </div>
+          </header>
+
+          <div class="flex-1 overflow-y-auto p-6 space-y-4">
+            <!-- Stat strip -->
+            <div class="grid grid-cols-8 gap-2">
+              <template x-for="st in tkStats" :key="st.k">
+                <div class="card p-2.5">
+                  <div class="text-[10px] uppercase tracking-wide text-ink-400" x-text="st.k"></div>
+                  <div class="mono text-sm font-medium" :class="st.cls || ''" x-text="st.v"></div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Price -->
+            <div class="card overflow-hidden">
+              <div class="px-4 py-2.5 border-b border-line flex items-center gap-2">
+                <i data-lucide="candlestick-chart" class="w-4 h-4 text-ink-600"></i>
+                <span class="text-xs font-medium text-ink-700">Price, SMA 20 / 50 / 200 and volume</span>
+                <div class="ml-auto flex items-center gap-3 text-[11px]">
+                  <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-[#38bdf8]"></span>SMA20</span>
+                  <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-[#f59e0b]"></span>SMA50</span>
+                  <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-[#4a6a88]"></span>SMA200</span>
+                  <span x-show="tk.markers.length" class="text-ink-400" x-text="tk.markers.length + ' position marks'"></span>
+                </div>
+              </div>
+              <div x-ref="chartPrice" class="w-full" style="height: 360px"></div>
+              <div x-show="!tk.bars.length" class="text-sm text-ink-400 py-10 text-center">No price history stored.</div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <!-- RSI -->
+              <div class="card overflow-hidden">
+                <div class="px-4 py-2.5 border-b border-line flex items-center gap-2">
+                  <i data-lucide="activity" class="w-4 h-4 text-ink-600"></i>
+                  <span class="text-xs font-medium text-ink-700">RSI 14</span>
+                  <span class="text-[11px] text-ink-400 ml-auto">70 overbought, 30 oversold</span>
+                </div>
+                <div x-ref="chartRsi" class="w-full" style="height: 180px"></div>
+              </div>
+
+              <!-- Composite -->
+              <div class="card overflow-hidden">
+                <div class="px-4 py-2.5 border-b border-line flex items-center gap-2">
+                  <i data-lucide="trending-up" class="w-4 h-4 text-ink-600"></i>
+                  <span class="text-xs font-medium text-ink-700">Composite score</span>
+                  <span class="text-[11px] text-ink-400 ml-auto" x-text="tk.scores.length + ' scored day' + (tk.scores.length === 1 ? '' : 's')"></span>
+                </div>
+                <div x-ref="chartScore" class="w-full" style="height: 180px"></div>
+                <div x-show="tk.scores.length < 2" class="px-4 py-3 text-[11px] text-ink-400">
+                  One point is not a line. This fills in as the daily run accumulates.
+                </div>
+              </div>
+            </div>
+
+            <!-- Flag history -->
+            <div class="card overflow-hidden">
+              <div class="px-4 py-2.5 border-b border-line flex items-center gap-2">
+                <i data-lucide="flag" class="w-4 h-4 text-ink-600"></i>
+                <span class="text-xs font-medium text-ink-700">Every flag this ticker has carried</span>
+                <span class="text-[11px] text-ink-400 ml-auto">Click a row for its evidence</span>
+              </div>
+              <table class="data-table">
+                <thead>
+                  <tr><th>Date</th><th class="num">Comp</th><th class="num">Mom</th><th class="num">Sent</th><th>Flags</th><th>Risks</th></tr>
+                </thead>
+                <tbody>
+                  <template x-for="sc in tkFlagRows" :key="sc.as_of">
+                    <tr class="cursor-pointer" @click="drawer = { ...sc, ticker: tickerSym, name: tk.row ? tk.row.name : '' }">
+                      <td class="mono" x-text="sc.as_of"></td>
+                      <td class="num font-medium" x-text="num(sc.composite, 1)"></td>
+                      <td class="num" x-text="num(sc.momentum, 1)"></td>
+                      <td class="num" x-text="num(sc.sentiment, 1)"></td>
+                      <td><template x-for="f in (sc.flags || [])" :key="f"><span class="pill pill-flag mr-1" x-text="f"></span></template></td>
+                      <td><template x-for="f in (sc.risks || [])" :key="f"><span class="pill pill-risk mr-1" x-text="f"></span></template></td>
+                    </tr>
+                  </template>
+                  <tr x-show="!tkFlagRows.length"><td colspan="6" class="text-center text-ink-400 py-6">No scored days with flags yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="grid grid-cols-3 gap-4 items-start">
+              <!-- News -->
+              <div class="col-span-2 card overflow-hidden">
+                <div class="px-4 py-2.5 border-b border-line flex items-center gap-2">
+                  <i data-lucide="newspaper" class="w-4 h-4 text-ink-600"></i>
+                  <span class="text-xs font-medium text-ink-700">News</span>
+                  <span class="text-[11px] text-ink-400" x-text="tk.news.length + ' articles'"></span>
+                  <span x-show="tk.news.length && !tkHasSentiment" class="text-[11px] text-warn ml-auto">
+                    No sentiment scored yet. Alpha Vantage supplies it; its daily quota was spent.
+                  </span>
+                </div>
+                <div class="max-h-[520px] overflow-y-auto divide-y divide-line">
+                  <template x-for="a in tk.news" :key="a.id">
+                    <div class="px-4 py-2.5">
+                      <div class="flex items-start gap-2">
+                        <span x-show="a.sentiment !== null" class="pill flex-shrink-0"
+                              :class="a.sentiment > 0.15 ? 'pill-flag' : (a.sentiment < -0.15 ? 'pill-risk' : 'pill-bench')"
+                              x-text="num(a.sentiment, 2)"></span>
+                        <div class="min-w-0">
+                          <a :href="a.url" target="_blank" rel="noopener noreferrer"
+                             class="text-[13px] text-ink-900 hover:text-brand-600 leading-snug" x-text="a.headline"></a>
+                          <div class="text-[11px] text-ink-400 mt-0.5">
+                            <span x-text="fmtTime(a.published_at)"></span> ·
+                            <span class="mono" x-text="a.source"></span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                  <div x-show="!tk.news.length" class="px-4 py-8 text-center text-sm text-ink-400">No articles stored in this window.</div>
+                </div>
+              </div>
+
+              <!-- Position + edits -->
+              <div class="space-y-4">
+                <div class="card p-4" x-show="tkPosition">
+                  <div class="flex items-center gap-2 mb-3">
+                    <i data-lucide="wallet" class="w-4 h-4 text-brand-600"></i>
+                    <span class="text-sm font-semibold">Position</span>
+                    <button class="btn btn-ghost btn-sm ml-auto" @click="openPosition(tk.row || { ticker: tickerSym })">
+                      <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                    </button>
+                  </div>
+                  <template x-if="tkPosition">
+                    <div class="space-y-1.5 text-[13px]">
+                      <div class="flex justify-between"><span class="text-ink-600">Shares</span><span class="mono" x-text="num(tkPosition.qty, 6)"></span></div>
+                      <div class="flex justify-between"><span class="text-ink-600">Avg cost</span><span class="mono" x-text="money(tkPosition.avg_cost)"></span></div>
+                      <div class="flex justify-between"><span class="text-ink-600">Cost basis</span><span class="mono" x-text="money(tkPosition.cost_basis)"></span></div>
+                      <div class="flex justify-between"><span class="text-ink-600">Value</span><span class="mono font-medium" x-text="money(tkPosition.market_value)"></span></div>
+                      <div class="flex justify-between"><span class="text-ink-600">Gain</span>
+                        <span class="mono" :class="signClass(tkPosition.gain)" x-text="money(tkPosition.gain) + ' (' + pct(tkPosition.gain_pct) + ')'"></span></div>
+                      <div class="flex justify-between"><span class="text-ink-600">Weight</span><span class="mono" x-text="pct(tkPosition.weight)"></span></div>
+                    </div>
+                  </template>
+                  <div class="border-t border-line mt-3 pt-2 space-y-1" x-show="tk.history.length">
+                    <div class="label">History</div>
+                    <template x-for="h in tk.history" :key="h.id">
+                      <div class="flex justify-between text-[11px] text-ink-600">
+                        <span x-text="fmtTime(h.changed_at)"></span>
+                        <span class="mono" x-text="(h.qty > 0 ? num(h.qty, 3) + ' sh @ ' + money(h.avg_cost) : 'closed')"></span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="card p-4">
+                  <div class="flex items-center gap-2 mb-3">
+                    <i data-lucide="crosshair" class="w-4 h-4 text-brand-600"></i>
+                    <span class="text-sm font-semibold">Entry watch</span>
+                    <button class="btn btn-ghost btn-sm ml-auto" @click="openEntry(tkEntry || { ticker: tickerSym })">
+                      <i :data-lucide="tkEntry ? 'pencil' : 'plus'" class="w-3.5 h-3.5"></i>
+                    </button>
+                  </div>
+                  <template x-if="tkEntry">
+                    <div class="space-y-1.5 text-[13px]">
+                      <div class="flex justify-between"><span class="text-ink-600">Status</span><span class="pill" :class="statusClass(tkEntry.status)" x-text="tkEntry.status"></span></div>
+                      <div class="flex justify-between"><span class="text-ink-600">Zone</span><span class="mono" x-text="zoneText(tkEntry) + (tkEntry.zone_source === 'analyst' && tkEntry.zone_low != null ? ' (AI)' : '')"></span></div>
+                      <div class="flex justify-between"><span class="text-ink-600">Distance</span><span class="mono" :class="distClass(tkEntry)" x-text="distText(tkEntry)"></span></div>
+                      <div class="flex justify-between"><span class="text-ink-600">Invalidation</span><span class="mono" x-text="tkEntry.invalidation ? num(tkEntry.invalidation, 2) : '-'"></span></div>
+                      <div class="flex justify-between"><span class="text-ink-600">Rule</span><span class="pill" :class="sigClass(tkEntry.rule.signal)" x-text="tkEntry.rule.signal"></span></div>
+                      <div class="flex justify-between"><span class="text-ink-600">Analyst</span>
+                        <span x-show="tkEntry.signal" class="pill" :class="sigClass(tkEntry.signal)" x-text="tkEntry.signal + ' ' + num(tkEntry.confidence, 2)"></span>
+                        <span x-show="!tkEntry.signal" class="text-ink-400 text-xs">not yet</span></div>
+                      <p class="text-xs text-ink-600 pt-1" x-show="tkEntry.summary" x-text="tkEntry.summary"></p>
+                      <a href="#entries" class="text-[11px] text-brand-600 hover:underline" @click="entryOpen = tickerSym">Open rationale</a>
+                    </div>
+                  </template>
+                  <div x-show="!tkEntry" class="text-xs text-ink-400">Not on the entry watch list. Add a zone to get signals.</div>
+                </div>
+
+                <div class="card p-4">
+                  <div class="flex items-center gap-2 mb-3">
+                    <i data-lucide="target" class="w-4 h-4 text-ink-600"></i>
+                    <span class="text-sm font-semibold">Target and notes</span>
+                  </div>
+                  <label class="label">Target entry</label>
+                  <input class="input input-sm mono" type="number" step="0.01" :value="tk.row ? tk.row.target_entry : ''"
+                         @change="patchTicker({ target_entry: $event.target.value === '' ? null : parseFloat($event.target.value) })" />
+                  <label class="label mt-3">Notes</label>
+                  <textarea class="input input-sm" rows="3" :value="tk.row ? (tk.row.notes || '') : ''"
+                            @change="patchTicker({ notes: $event.target.value })"></textarea>
+                  <div class="text-[11px] text-ink-400 mt-2" x-show="tk.row && tk.row.target_entry && tk.row.close">
+                    <span x-text="tk.row && tk.row.target_entry ? pct((tk.row.close - tk.row.target_entry) / tk.row.target_entry) : ''"></span> above target
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ============================ RUNS ============================= -->
+      <template x-if="screen === 'runs'">
+        <div class="flex-1 flex flex-col min-w-0">
+          <header class="bg-[#0a0e18] border-b border-line px-6 py-3 flex items-center sticky top-0 z-20">
+            <h1 class="text-sm font-semibold">Runs</h1>
+            <div class="ml-auto flex gap-2">
+              <button @click="loadRuns()" class="btn btn-secondary btn-sm"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh</button>
+              <button @click="runNow()" class="btn btn-primary btn-sm" :disabled="busy.run"><i data-lucide="play" class="w-3.5 h-3.5"></i> Run now</button>
+            </div>
+          </header>
+          <div class="flex-1 overflow-y-auto p-6">
+            <div class="card overflow-hidden">
+              <table class="data-table">
+                <thead><tr><th>Started</th><th>Kind</th><th>As of</th><th>Status</th><th class="num">Duration</th><th>Sources</th></tr></thead>
+                <tbody>
+                  <template x-for="r in runs" :key="r.run_id">
+                    <tr>
+                      <td class="mono text-xs" x-text="fmtTime(r.started_at)"></td>
+                      <td x-text="r.kind"></td>
+                      <td class="mono text-xs" x-text="r.as_of"></td>
+                      <td><span class="pill" :class="r.status === 'ok' || r.status === 'done' ? 'pill-flag' : (r.status === 'running' ? 'pill-warn' : 'pill-risk')" x-text="r.status"></span></td>
+                      <td class="num" x-text="duration(r)"></td>
+                      <td class="whitespace-normal">
+                        <template x-for="s in (r.sources || [])" :key="s.source">
+                          <span class="pill mr-1" :class="s.error > 0 ? 'pill-risk' : (s.ok === 0 ? 'pill-warn' : 'pill-bench')"
+                                x-text="s.source + ' ' + s.ok + (s.error ? '/' + s.error + 'e' : '')"></span>
+                        </template>
+                      </td>
+                    </tr>
+                  </template>
+                  <tr x-show="!runs.length"><td colspan="6" class="text-center text-ink-400 py-8">No runs recorded.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ========================== SETTINGS =========================== -->
+      <template x-if="screen === 'settings'">
+        <div class="flex-1 flex flex-col min-w-0">
+          <header class="bg-[#0a0e18] border-b border-line px-6 py-3 flex items-center sticky top-0 z-20">
+            <h1 class="text-sm font-semibold">Settings</h1>
+            <span class="ml-2 text-xs text-ink-400">intel.config, versioned on every write</span>
+            <button @click="saveSettings()" class="btn btn-primary btn-sm ml-auto" :disabled="busy.config">
+              <i data-lucide="save" class="w-3.5 h-3.5"></i> Save
+            </button>
+          </header>
+          <div class="flex-1 overflow-y-auto p-6 space-y-4">
+
+            <!-- ===== Models ===== -->
+            <div class="card max-w-[980px]">
+              <div class="px-5 py-3 border-b border-line flex items-center gap-2">
+                <i data-lucide="cpu" class="w-4 h-4 text-brand-600"></i>
+                <span class="text-sm font-semibold">Models</span>
+                <span class="text-xs text-ink-400">Providers hold an endpoint and the name of the environment variable that carries the key. Keys never enter the database.</span>
+              </div>
+
+              <!-- Providers -->
+              <div class="px-5 pt-4">
+                <div class="label">Providers</div>
+                <table class="data-table">
+                  <thead><tr><th>Name</th><th>Kind</th><th>Endpoint</th><th>Key variable</th><th>Enabled</th><th></th></tr></thead>
+                  <tbody>
+                    <template x-for="(p, i) in providers" :key="p.id">
+                      <tr>
+                        <td><span class="font-medium" x-text="p.name"></span> <span class="mono text-[11px] text-ink-400" x-text="p.id"></span></td>
+                        <td><span class="pill pill-tag" x-text="p.kind"></span></td>
+                        <td class="mono text-[11px] text-ink-600" x-text="p.base_url"></td>
+                        <td>
+                          <span class="inline-block w-2 h-2 rounded-full mr-1.5" :class="p.key_present ? 'bg-ok' : 'bg-danger'"></span>
+                          <span class="mono text-[11px]" x-text="p.key_env"></span>
+                          <span class="text-[11px] text-ink-400" x-show="!p.key_present"> not set</span>
+                        </td>
+                        <td><input type="checkbox" class="tgl" x-model="p.enabled"></td>
+                        <td class="whitespace-nowrap">
+                          <button class="btn btn-secondary btn-sm" @click="testProvider(p.id)" :disabled="busy.test === p.id">
+                            <i :data-lucide="busy.test === p.id ? 'loader-2' : 'plug-zap'" class="w-3.5 h-3.5" :class="busy.test === p.id ? 'spin' : ''"></i> Test
+                          </button>
+                          <button class="btn btn-ghost btn-sm" title="Remove provider" @click="removeProvider(i)" :disabled="providers.length < 2">
+                            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                          </button>
+                          <div class="text-[11px] mt-1 font-sans" x-show="testResult[p.id]"
+                               :class="testResult[p.id] && testResult[p.id].ok ? 'text-ok' : 'text-danger'" x-text="testSummary(p.id)"></div>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+
+                <div class="mt-3" x-show="!showAddProv">
+                  <button class="btn btn-secondary btn-sm" @click="showAddProv = true; newProvKind()"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add provider</button>
+                </div>
+                <div class="mt-3 p-3 rounded-md bg-surface-2 border border-line" x-show="showAddProv">
+                  <div class="grid grid-cols-5 gap-2">
+                    <div><label class="label">Kind</label>
+                      <select class="select-input input-sm" x-model="newProv.kind" @change="newProvKind()">
+                        <template x-for="k in Object.keys(providerKinds)" :key="k"><option :value="k" x-text="k"></option></template>
+                      </select></div>
+                    <div><label class="label">Id</label><input class="input input-sm mono" x-model="newProv.id" placeholder="anthropic-direct"></div>
+                    <div><label class="label">Name</label><input class="input input-sm" x-model="newProv.name" placeholder="Anthropic direct"></div>
+                    <div><label class="label">Endpoint</label><input class="input input-sm mono" x-model="newProv.base_url"></div>
+                    <div><label class="label">Key variable</label><input class="input input-sm mono" x-model="newProv.key_env"></div>
+                  </div>
+                  <div class="flex items-center gap-2 mt-2">
+                    <button class="btn btn-primary btn-sm" @click="addProvider()">Add</button>
+                    <button class="btn btn-ghost btn-sm" @click="showAddProv = false">Cancel</button>
+                    <span class="text-[11px] text-ink-400">Then put the key in <span class="mono">.env</span> under that variable name and restart the app container. The dot turns green when the app sees it.</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Roles -->
+              <div class="px-5 pt-5">
+                <div class="label">Roles</div>
+                <div class="space-y-3">
+                  <template x-for="r in roleDefs" :key="r.key">
+                    <div class="grid grid-cols-12 gap-3 items-start">
+                      <div class="col-span-3">
+                        <div class="text-[13px] font-medium" x-text="r.label"></div>
+                        <div class="text-[11px] text-ink-400" x-text="r.hint"></div>
+                        <div class="mono text-[10px] text-ink-400 mt-1" x-text="r.key"></div>
+                      </div>
+                      <div class="col-span-2">
+                        <select class="select-input input-sm" x-model="roles[r.key].provider" @change="ensureCatalog(roles[r.key].provider)">
+                          <template x-for="p in providers.filter(p => p.enabled)" :key="p.id"><option :value="p.id" x-text="p.name"></option></template>
+                        </select>
+                      </div>
+                      <div class="col-span-7">
+                        <div class="flex gap-2">
+                          <input class="input input-sm" style="max-width: 200px" placeholder="filter models" x-model="roles[r.key].q">
+                          <select class="select-input input-sm mono text-[12px]" x-model="roles[r.key].model" x-effect="catalogs[roles[r.key].provider]; roles[r.key].q; $nextTick(() => { $el.value = roles[r.key].model })">
+                            <template x-if="!modelInCatalog(roles[r.key])">
+                              <option :value="roles[r.key].model" x-text="roles[r.key].model + '  (not in catalog)'"></option>
+                            </template>
+                            <template x-for="m in filteredModels(roles[r.key].provider, roles[r.key].q, roles[r.key].model)" :key="m.id">
+                              <option :value="m.id" x-text="modelLabel(m)"></option>
+                            </template>
+                          </select>
+                        </div>
+                        <div class="text-[11px] mt-1 flex items-center gap-2">
+                          <span class="text-ink-400" x-text="catalogHint(roles[r.key].provider)"></span>
+                          <span class="text-warn" x-show="isStale(roles[r.key])">saved model is not in the live catalog</span>
+                          <span class="text-ink-400" x-text="modelMeta(roles[r.key])"></span>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Bake-off set -->
+              <div class="px-5 pt-5 pb-5">
+                <div class="label">Bake-off set <span class="font-normal text-ink-400">analyst_bakeoff_models, the challengers eval_models.py runs against the analyst model</span></div>
+                <div class="flex flex-wrap gap-1.5 mb-2">
+                  <template x-for="(b, i) in bakeoff" :key="b.provider + ':' + b.model">
+                    <span class="pill pill-tag mono">
+                      <span x-text="(b.provider === 'openrouter' ? '' : b.provider + ':') + b.model"></span>
+                      <button class="ml-1 text-ink-400 hover:text-danger" @click="bakeoff.splice(i, 1)" title="Remove">&times;</button>
+                    </span>
+                  </template>
+                  <span class="text-xs text-ink-400" x-show="!bakeoff.length">No challengers yet.</span>
+                </div>
+                <div class="flex gap-2 items-center">
+                  <select class="select-input input-sm" style="max-width: 160px" x-model="bakeAdd.provider" @change="ensureCatalog(bakeAdd.provider)">
+                    <template x-for="p in providers.filter(p => p.enabled)" :key="p.id"><option :value="p.id" x-text="p.name"></option></template>
+                  </select>
+                  <input class="input input-sm" style="max-width: 200px" placeholder="filter models" x-model="bakeAdd.q">
+                  <select class="select-input input-sm mono text-[12px]" x-model="bakeAdd.model">
+                    <option value="">choose a model</option>
+                    <template x-for="m in filteredModels(bakeAdd.provider, bakeAdd.q, '')" :key="m.id">
+                      <option :value="m.id" x-text="modelLabel(m)"></option>
+                    </template>
+                  </select>
+                  <button class="btn btn-secondary btn-sm" @click="addBakeoff()" :disabled="!bakeAdd.model"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                </div>
+                <div class="text-[11px] text-ink-400 mt-2">Only models with tool calling and structured output can run the full agent; the others still qualify for draft-only evaluation.</div>
+              </div>
+            </div>
+
+            <!-- ===== Analyst ===== -->
+            <div class="card max-w-[980px]">
+              <div class="px-5 py-3 border-b border-line flex items-center gap-2">
+                <i data-lucide="brain" class="w-4 h-4 text-brand-600"></i>
+                <span class="text-sm font-semibold">Analyst</span>
+              </div>
+              <div class="px-5 py-4 grid grid-cols-3 gap-4">
+                <div><label class="label">Daily spend cap, USD <span class="mono text-ink-400">analyst_daily_cap_usd</span></label>
+                  <input type="number" step="0.25" min="0" class="input input-sm mono" x-model.number="cfg.analyst_daily_cap_usd"></div>
+                <div><label class="label">Web fetches per run <span class="mono text-ink-400">analyst_max_fetches</span></label>
+                  <input type="number" step="1" min="0" class="input input-sm mono" x-model.number="cfg.analyst_max_fetches"></div>
+                <div><label class="label">Search provider <span class="mono text-ink-400">analyst_search_provider</span></label>
+                  <select class="select-input input-sm" x-model="cfg.analyst_search_provider"><option value="brave">brave</option><option value="marketaux">marketaux</option><option value="tavily">tavily</option></select></div>
+                <div class="flex items-center gap-2 pt-1"><input type="checkbox" class="tgl" x-model="cfg.analyst_hitl"><div><div class="text-[13px]">Human review before persist</div><div class="text-[11px] text-ink-400 mono">analyst_hitl, applies to the weekly deep pass</div></div></div>
+                <div class="flex items-center gap-2 pt-1"><input type="checkbox" class="tgl" x-model="cfg.analyst_share_positions_offsite"><div><div class="text-[13px]">Share position sizes with the model</div><div class="text-[11px] text-ink-400 mono">analyst_share_positions_offsite</div></div></div>
+                <div class="flex items-center gap-2 pt-1"><input type="checkbox" class="tgl" x-model="cfg.entry_signal_auto"><div><div class="text-[13px]">Signal the entry watch list after each daily analysis</div><div class="text-[11px] text-ink-400 mono">entry_signal_auto</div></div></div>
+                <div><label class="label">Near-zone threshold, fraction <span class="mono text-ink-400">entry_near_pct</span></label>
+                  <input type="number" step="0.005" min="0" max="0.5" class="input input-sm mono" x-model.number="cfg.entry_near_pct"></div>
+                <div><label class="label">Tickers per entry pass, max 8 <span class="mono text-ink-400">entry_signal_batch</span></label>
+                  <input type="number" step="1" min="1" max="8" class="input input-sm mono" x-model.number="cfg.entry_signal_batch"></div>
+                <div class="flex items-center gap-2 pt-1"><input type="checkbox" class="tgl" x-model="cfg.entry_watch_holdings"><div><div class="text-[13px]">Watch every holding for a dip to add on</div><div class="text-[11px] text-ink-400 mono">entry_watch_holdings</div></div></div>
+                <div><label class="label">Add zone tops out this far below the average cost, fraction <span class="mono text-ink-400">entry_dca_min_discount</span></label>
+                  <input type="number" step="0.005" min="0" max="0.5" class="input input-sm mono" x-model.number="cfg.entry_dca_min_discount"></div>
+                <div><label class="label">Prompt set</label><div class="mono text-[12px] pt-1" x-text="(cfg.analyst_prompt_version || 'v1') + ' · files in app/prompts'"></div></div>
+                <div class="col-span-3"><label class="label">News domains the web tools may read, one per line <span class="mono text-ink-400">news_domains</span></label>
+                  <textarea class="input mono text-[12px]" rows="4" x-model="newsDomainsText"></textarea></div>
+              </div>
+            </div>
+
+            <!-- ===== Pipeline ===== -->
+            <div class="card max-w-[980px]">
+              <div class="px-5 py-3 border-b border-line flex items-center gap-2">
+                <i data-lucide="workflow" class="w-4 h-4 text-brand-600"></i>
+                <span class="text-sm font-semibold">Pipeline and brief</span>
+              </div>
+              <div class="px-5 py-4 grid grid-cols-3 gap-4">
+                <div class="flex items-center gap-2"><input type="checkbox" class="tgl" x-model="cfg.notify_email"><div><div class="text-[13px]">Email the brief</div><div class="text-[11px] text-ink-400 mono">notify_email</div></div></div>
+                <div class="flex items-center gap-2"><input type="checkbox" class="tgl" x-model="cfg.email_position_values"><div><div class="text-[13px]">Share counts and values in the email</div><div class="text-[11px] text-ink-400 mono">email_position_values</div></div></div>
+                <div></div>
+                <div class="col-span-3">
+                  <label class="label">Score weights <span class="mono text-ink-400">weights</span> <span class="text-ink-400" x-text="'sum ' + weightSum().toFixed(2)"></span></label>
+                  <div class="grid grid-cols-4 gap-2">
+                    <template x-for="k in ['momentum','value','sentiment','catalyst']" :key="k">
+                      <div><div class="text-[11px] text-ink-400 mono mb-1" x-text="k"></div><input type="number" step="0.05" min="0" max="1" class="input input-sm mono" x-model.number="weights[k]"></div>
+                    </template>
+                  </div>
+                </div>
+                <div class="col-span-3"><label class="label">Free-tier quota per weekday <span class="mono text-ink-400">quota</span></label>
+                  <textarea class="input mono text-[12px]" rows="2" x-model="cfgRaw.quota"></textarea></div>
+                <div>
+                  <label class="label">App URL n8n calls back <span class="mono text-ink-400">app_base_url</span></label>
+                  <input class="input input-sm mono" x-model="cfg.app_base_url" placeholder="http://app:8095">
+                </div>
+                <div>
+                  <label class="label">Telegram chat id <span class="mono text-ink-400">telegram.chat_id</span></label>
+                  <input class="input input-sm mono" x-model="telegram.chat_id" placeholder="blank = no push">
+                </div>
+                <div class="flex items-center gap-2 pt-5">
+                  <input type="checkbox" class="tgl" x-model="telegram.send_document">
+                  <div><div class="text-[13px]">Attach the full brief</div><div class="text-[11px] text-ink-400 mono">telegram.send_document</div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ===== Advanced ===== -->
+            <details class="card max-w-[980px]">
+              <summary class="px-5 py-3 text-sm font-semibold cursor-pointer flex items-center gap-2"><i data-lucide="braces" class="w-4 h-4 text-ink-600"></i> Advanced: raw JSON for every other key</summary>
+              <div class="px-5 pb-4 space-y-3">
+                <template x-for="k in advancedKeys()" :key="k">
+                  <div>
+                    <label class="label mono" x-text="k"></label>
+                    <textarea class="input mono text-[12px]" rows="2" x-model="cfgRaw[k]"></textarea>
+                    <div class="text-[11px] text-ink-400 mt-1" x-text="'updated ' + (configUpdated[k] ? fmtTime(configUpdated[k]) : 'never')"></div>
+                  </div>
+                </template>
+                <div x-show="!advancedKeys().length" class="text-xs text-ink-400">Everything is covered by the sections above.</div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// Wraps signed numbers (+1.3%, -0.12, -$40) in rendered markdown with gain/loss classes. Text nodes only, so links and dates are untouched.
+const SIGNED_NUM = /(^|[\s(|,:])([+-]\$?\d[\d,]*(?:\.\d+)?%?)(?=$|[\s)|,.;:])/g;
+function colorSigned(html, up = 'text-ok', down = 'text-danger') {
+  if (!html || !/[+-]\$?\d/.test(html)) return html;
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_TEXT);
+  const hits = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.nodeValue.search(SIGNED_NUM) >= 0) hits.push(n);
+  for (const n of hits) {
+    if (n.parentNode.closest('a, code, pre')) continue;
+    const span = document.createElement('span');
+    span.innerHTML = n.nodeValue.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+      .replace(SIGNED_NUM, (m, pre, v) => `${pre}<span class="${v[0] === '+' ? up : down}">${v}</span>`);
+    n.replaceWith(...span.childNodes);
+  }
+  return tpl.innerHTML;
+}
+
+function stockIntel() {
+  return {
+    version: '0.4.2',
+    token: '', tokenInput: '',
+    screen: 'today',
+    toasts: [],
+    busy: { run: false, add: false, config: false, pos: false, analyze: false, feedback: false, test: '', entry: false, signal: false },
+
+    reports: [], report: null, scores: [], selectedDate: '',
+    analysis: null, source: null, fbNote: '', analysisTimer: null,
+    dataHealth: null,
+    spend: { spent: 0, cap: null, count: 0, remaining: null, pct_used: null, as_of: null }, spendTimer: null, SPEND_MS: 120000,
+    spendModal: false, spendDetail: null, spendBusy: false,
+    watchlist: [], allTags: [], counts: { active: 0, retired: 0 },
+    editModal: false, editForm: { ticker: '', name: '', tags: '', benchmark: false, target_entry: '', notes: '' },
+    positions: [],
+
+    entries: [], entryCounts: { watching: 0, triggered: 0, entered: 0, dropped: 0 }, entryRunning: [], entryLastPass: null,
+    entryNearPct: 0.03, entryShowAll: false, entryOpen: null, entryTimer: null, esig: null,
+    entryModal: false,
+    entryForm: { ticker: '', zone_low: '', zone_high: '', invalidation: '', horizon: 'weeks', status: 'watching', thesis: '', notes: '', existing: false },
+    sourceCache: {},
+
+    tickerSym: '',
+    tk: { row: null, bars: [], news: [], scores: [], history: [], markers: [] },
+    tkDays: 365,
+    tkRanges: [{ label: '3M', days: 90 }, { label: '6M', days: 180 },
+               { label: '1Y', days: 365 }, { label: '2Y', days: 730 }],
+    charts: [],
+
+    quotes: {}, quoteAt: null, quoteFeed: null, marketOpen: false, quoteError: null,
+    quoteTimer: null,
+    QUOTE_MS: 60000,
+    runs: [],
+    cfg: {}, cfgRaw: {}, configUpdated: {}, weights: { momentum: 0.3, value: 0.25, sentiment: 0.25, catalyst: 0.2 },
+    telegram: { chat_id: '', send_document: true },
+    newsDomainsText: '',
+    providers: [], providerKinds: {}, showAddProv: false, newProv: { id: '', name: '', kind: 'openrouter', base_url: '', key_env: '' },
+    catalogs: {}, testResult: {},
+    roleDefs: [
+      { key: 'analyst_model', label: 'Analyst', hint: 'plan, gather and draft' },
+      { key: 'analyst_cheap_model', label: 'Critic', hint: 'critique pass and article summaries' },
+      { key: 'analyst_deep_model', label: 'Deep', hint: 'weekly pass over five briefs' },
+    ],
+    roles: { analyst_model: { provider: 'openrouter', model: '', q: '' }, analyst_cheap_model: { provider: 'openrouter', model: '', q: '' }, analyst_deep_model: { provider: 'openrouter', model: '', q: '' } },
+    bakeoff: [], bakeAdd: { provider: 'openrouter', model: '', q: '' },
+
+    wlSearch: '', wlTag: '', wlShowRetired: false,
+    sort: { key: 'composite', dir: 'desc' },
+
+    addModal: false,
+    addForm: { ticker: '', tags: '', target_entry: '', notes: '' },
+    posModal: false,
+    posForm: { ticker: '', mode: 'dollars', amount: '', fill_price: '', qty: '', avg_cost: '', opened_at: '', notes: '', existing: false },
+    drawer: null,
+
+    get navItems() {
+      return [
+        { key: 'today',     label: 'Today',     icon: 'newspaper' },
+        { key: 'reports',   label: 'Reports',   icon: 'files', count: this.reports.length || null },
+        { key: 'entries',   label: 'Entries',   icon: 'crosshair', count: this.liveEntries.length || null },
+        { key: 'watchlist', label: 'Watchlist', icon: 'list-checks', count: this.counts.active || null },
+        { key: 'runs',      label: 'Runs',      icon: 'activity' },
+        { key: 'settings',  label: 'Settings',  icon: 'settings' },
+      ];
+    },
+
+    // Derive qty/avg_cost/basis from the active entry mode. Dollars mode mirrors a broker
+    // fractional fill (amount spent + fill price); shares mode is manual qty + avg cost.
+    get posComputed() {
+      const f = this.posForm;
+      if (f.mode === 'dollars') {
+        const amt = parseFloat(f.amount), px = parseFloat(f.fill_price);
+        const ok = Number.isFinite(amt) && amt > 0 && Number.isFinite(px) && px > 0;
+        return { qty: ok ? amt / px : NaN, avg_cost: ok ? px : NaN, basis: ok ? amt : NaN };
+      }
+      const q = parseFloat(f.qty), c = parseFloat(f.avg_cost);
+      const okq = Number.isFinite(q) && q > 0;
+      return { qty: okq ? q : NaN, avg_cost: Number.isFinite(c) ? c : NaN,
+               basis: (okq && Number.isFinite(c)) ? q * c : NaN };
+    },
+    get posBasis() {
+      const b = this.posComputed.basis;
+      return Number.isFinite(b) ? this.money(b) : '-';
+    },
+    get posShares() {
+      const q = this.posComputed.qty;
+      return Number.isFinite(q) ? (Math.round(q * 1e6) / 1e6).toString() : '-';
+    },
+
+    get posAsOf() { return this.positions.length ? this.positions[0].price_as_of : null; },
+
+    get tkPosition() { return this.liveHoldings.rows.find(p => p.ticker === this.tickerSym) || null; },
+
+    get tkEntry() { return this.entries.find(e => e.ticker === this.tickerSym) || null; },
+
+    get liveEntries() { return this.entries.filter(e => e.status === 'watching' || e.status === 'triggered'); },
+
+    // Daily analyst spend counter (Today card + sidebar line).
+    get spendPct() { const c = this.spend.cap; if (!c) return 0; return Math.max(0, Math.min(100, Math.round((this.spend.spent / c) * 100))); },
+    get spendClass() { const p = this.spend.pct_used; if (p == null) return 'text-ink-700'; return p >= 1 ? 'text-danger' : (p >= 0.8 ? 'text-warn' : 'text-ok'); },
+    get spendBarClass() { const p = this.spend.pct_used; if (p == null) return 'bg-brand-600'; return p >= 1 ? 'bg-danger' : (p >= 0.8 ? 'bg-warn' : 'bg-ok'); },
+
+    // Today card: anything the rule layer or the analyst puts at enter or near.
+    get hotEntries() {
+      const hot = s => s === 'enter' || s === 'near';
+      return this.liveEntries.filter(e => hot(e.signal) || hot(e.rule.signal));
+    },
+
+    get liveQuoteCount() { return Object.keys(this.quotes).length; },
+
+    // Positions revalued against the last trade when a quote is in hand, otherwise the
+    // stored close. Weights and totals are recomputed from whatever each row ended up using.
+    get liveHoldings() {
+      const rows = this.positions.map(p => {
+        const q = this.quotes[p.ticker];
+        if (!q || q.price == null) return { ...p, live: false };
+        const price = q.price;
+        const gain = p.avg_cost == null ? null : p.qty * (price - p.avg_cost);
+        return {
+          ...p, live: true, last_close: price,
+          market_value: p.qty * price,
+          gain,
+          gain_pct: p.avg_cost ? (price - p.avg_cost) / p.avg_cost : null,
+          day_change: q.prev_close == null ? null : p.qty * (price - q.prev_close),
+        };
+      });
+      const equity = rows.reduce((a, r) => a + (r.market_value || 0), 0);
+      for (const r of rows) r.weight = (equity && r.market_value) ? r.market_value / equity : null;
+      const cost = rows.reduce((a, r) => a + (r.cost_basis || 0), 0);
+      const gain = rows.reduce((a, r) => a + (r.gain || 0), 0);
+      return {
+        rows,
+        anyLive: rows.some(r => r.live),
+        total: {
+          count: rows.length,
+          cost_basis: cost || null,
+          market_value: equity || null,
+          gain: rows.length ? gain : null,
+          gain_pct: cost ? gain / cost : null,
+          day_change: rows.length ? rows.reduce((a, r) => a + (r.day_change || 0), 0) : null,
+        },
+      };
+    },
+
+    get tkHasSentiment() { return this.tk.news.some(a => a.sentiment !== null); },
+
+    get tkFlagRows() {
+      return this.tk.scores
+        .filter(s => (s.flags || []).length || (s.risks || []).length)
+        .sort((a, b) => (a.as_of < b.as_of ? 1 : -1));
+    },
+
+    get tkStats() {
+      const r = this.tk.row, b = this.tk.bars.length ? this.tk.bars[this.tk.bars.length - 1] : null;
+      const q = this.quotes[this.tickerSym] || null;
+      if (!r && !b) return [];
+      const dist = (v) => (b && b.close && v ? this.pct((b.close - v) / v) : '-');
+      return [
+        { k: q ? 'Last' : 'Close', v: this.num(q ? q.price : (b ? b.close : (r && r.close)), 2),
+          cls: q ? 'text-brand-600' : '' },
+        { k: '1d', v: this.pct(q ? q.change_pct : (r && r.ret_1d)),
+          cls: this.signClass(q ? q.change_pct : (r && r.ret_1d)) },
+        { k: '5d',     v: this.pct(r && r.ret_5d),  cls: this.signClass(r && r.ret_5d) },
+        { k: '20d',    v: this.pct(r && r.ret_20d), cls: this.signClass(r && r.ret_20d) },
+        { k: 'RSI 14', v: this.num(b ? b.rsi14 : (r && r.rsi14), 1) },
+        { k: 'Vol z',  v: this.num(b ? b.vol_z20 : (r && r.vol_z20), 2) },
+        { k: 'ATR 14', v: this.num(b && b.atr14, 2) },
+        { k: 'Comp',   v: this.num(r && r.composite, 1) },
+        { k: 'vs SMA20',  v: dist(b && b.sma20) },
+        { k: 'vs SMA50',  v: dist(b && b.sma50) },
+        { k: 'vs SMA200', v: dist(b && b.sma200) },
+        { k: '52w high',  v: this.num(r && r.hi52w, 2) },
+        { k: '52w low',   v: this.num(r && r.lo52w, 2) },
+        { k: 'From high', v: this.pct(r && r.pct_from_hi52w), cls: this.signClass(r && r.pct_from_hi52w) },
+        { k: 'Sent 7d',   v: this.num(r && r.news_score, 2), cls: this.signClass(r && r.news_score) },
+        { k: 'Target',    v: this.num(r && r.target_entry, 2) },
+      ];
+    },
+
+    get filteredWatchlist() {
+      const q = this.wlSearch.trim().toLowerCase();
+      let rows = this.watchlist.filter(w => {
+        if (!this.wlShowRetired && !w.active) return false;
+        if (this.wlTag && !(w.tags || []).includes(this.wlTag)) return false;
+        if (!q) return true;
+        return (w.ticker + ' ' + (w.name || '')).toLowerCase().includes(q);
+      });
+      const { key, dir } = this.sort;
+      const mult = dir === 'asc' ? 1 : -1;
+      return rows.sort((a, b) => {
+        const av = a[key], bv = b[key];
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        const an = Number(av), bn = Number(bv);
+        if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * mult;
+        return String(av).localeCompare(String(bv)) * mult;
+      });
+    },
+
+    // ---------- boot / routing ----------
+    async boot() {
+      this.token = localStorage.getItem('stock_intel_token') || '';
+      this.applyHash();
+      window.addEventListener('hashchange', () => { this.applyHash(); this.loadScreen(); });
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) this.loadQuotes(); });
+      document.addEventListener('click', (ev) => { const b = ev.target.closest && ev.target.closest('button.cite'); if (b) this.openSource(b.dataset.ref, b.dataset.aid); });
+      if (this.token) await this.loadAll();
+      this.startQuotePolling();
+      this.startSpendPolling();
+      this.refreshIcons();
+    },
+
+    applyHash() {
+      const h = (window.location.hash || '').replace('#', '');
+      if (h.startsWith('ticker/')) {
+        const sym = decodeURIComponent(h.slice(7)).toUpperCase();
+        if (sym) { this.screen = 'ticker'; this.tickerSym = sym; return; }
+      }
+      this.screen = ['today', 'reports', 'entries', 'watchlist', 'runs', 'settings'].includes(h) ? h : 'today';
+    },
+
+    openTicker(sym) { window.location.hash = 'ticker/' + sym; },
+
+    async loadAll() {
+      await Promise.all([this.loadReports(), this.loadWatchlist(), this.loadPositions(), this.loadQuotes(), this.loadEntries(), this.loadSpend(), this.loadDataHealth()]);
+      if (this.reports.length) await this.loadReport(this.reports[0].as_of);
+      await this.loadScreen();
+    },
+
+    async loadScreen() {
+      if (!this.token) return;
+      if (this.screen !== 'ticker') this.destroyCharts();
+      if (this.screen === 'runs') await this.loadRuns();
+      if (this.screen === 'settings') await this.loadSettings();
+      if (this.screen === 'ticker') await this.loadTicker();
+      if (this.screen === 'entries') await this.loadEntries();
+      this.refreshIcons();
+    },
+
+    // ---------- entry watch ----------
+    async loadEntries() {
+      clearTimeout(this.entryTimer);
+      try {
+        const d = await this.api('GET', '/api/entries' + (this.entryShowAll ? '?include_dropped=true' : ''));
+        this.entries = this.entryShowAll ? d.entries : d.entries.filter(e => e.status !== 'entered');
+        this.entryCounts = d.counts; this.entryRunning = d.running || []; this.entryNearPct = d.near_pct || 0.03;
+        this.entryLastPass = d.last_pass || null;
+        // A pass in flight lands within a few minutes; poll until it does.
+        if (this.entryRunning.length) this.entryTimer = setTimeout(() => this.loadEntries(), 8000);
+        this.loadSpend();   // entry passes cost money; keep the counter current as they land
+      } catch (e) { this.toast('Entries: ' + e.message, 'error'); }
+      this.refreshIcons();
+    },
+
+    livePrice(e) { const q = this.quoteFor(e.ticker); return q && q.price != null ? q.price : e.close; },
+
+    // Signed distance from the zone as a fraction of the live price. Zero inside, null without a zone.
+    liveDist(e) {
+      const p = this.livePrice(e);
+      if (p == null || (e.zone_low == null && e.zone_high == null)) return null;
+      const lo = e.zone_low != null ? e.zone_low : e.zone_high, hi = e.zone_high != null ? e.zone_high : e.zone_low;
+      if (p >= lo && p <= hi) return 0;
+      return p > hi ? (p - hi) / p : (p - lo) / p;
+    },
+    distText(e) {
+      const d = this.liveDist(e);
+      if (d === null) return '-';
+      if (d === 0) return 'in zone';
+      return (d > 0 ? '+' : '') + (d * 100).toFixed(1) + '%';
+    },
+    distClass(e) {
+      const d = this.liveDist(e);
+      if (d === null) return 'text-ink-400';
+      if (d === 0) return 'text-ok font-medium';
+      return Math.abs(d) <= this.entryNearPct ? 'text-warn' : (d < 0 ? 'text-danger' : 'text-ink-600');
+    },
+    // Add rows: live price against the average cost. Below zero is the only place adding lowers it.
+    liveVsCost(e) {
+      if (e.kind !== 'add' || e.avg_cost == null || Number(e.avg_cost) <= 0) return null;
+      const p = this.livePrice(e);
+      return p == null ? null : (p - Number(e.avg_cost)) / Number(e.avg_cost);
+    },
+    costText(e) { const v = this.liveVsCost(e); return v === null ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; },
+    costClass(e) { const v = this.liveVsCost(e); return v === null ? 'text-ink-400' : (v < 0 ? 'text-ok' : 'text-ink-600'); },
+    zoneText(e) {
+      if (e.zone_low == null && e.zone_high == null) return 'no zone';
+      return this.num(e.zone_low != null ? e.zone_low : e.zone_high, 2) + ' - ' + this.num(e.zone_high != null ? e.zone_high : e.zone_low, 2);
+    },
+    sigClass(s) { return s === 'enter' ? 'pill-flag' : (s === 'near' ? 'pill-warn' : (s === 'avoid' ? 'pill-risk' : 'pill-hold')); },
+    statusClass(s) { return s === 'entered' ? 'pill-hold' : (s === 'triggered' ? 'pill-flag' : (s === 'dropped' ? 'pill-bench' : 'pill-tag')); },
+    ago(ts) {
+      const m = Math.max(0, Math.round((Date.now() - new Date(ts)) / 60000));
+      if (m < 60) return m + 'm';
+      if (m < 60 * 36) return Math.round(m / 60) + 'h';
+      return Math.round(m / 1440) + 'd';
+    },
+
+    toggleEntry(e) { this.entryOpen = this.entryOpen === e.ticker ? null : e.ticker; if (this.entryOpen !== (this.esig && this.esig.ticker)) this.esig = null; this.refreshIcons(); },
+
+    async loadEntryHistory(ticker) {
+      try { this.esig = await this.api('GET', '/api/entries/' + ticker + '/signals'); }
+      catch (e) { this.toast(ticker + ': ' + e.message, 'error'); }
+      this.refreshIcons();
+    },
+
+    openEntry(row) {
+      const e = row && row.status ? row : null;
+      this.entryForm = {
+        ticker: row ? row.ticker : '',
+        zone_low: e && e.zone_low != null ? e.zone_low : '',
+        zone_high: e && e.zone_high != null ? e.zone_high : '',
+        invalidation: e && e.invalidation != null ? e.invalidation : '',
+        horizon: e ? e.horizon : 'weeks',
+        status: e ? e.status : 'watching',
+        kind: e ? (e.kind || 'new') : 'new', qty: e ? e.qty : null, avg_cost: e ? e.avg_cost : null, zone_cap: e ? e.zone_cap : null,
+        thesis: e ? (e.thesis || '') : '',
+        notes: e ? (e.notes || '') : '',
+        existing: !!e,
+      };
+      this.entryModal = true;
+      this.$nextTick(() => this.refreshIcons());
+    },
+
+    async saveEntry() {
+      const f = this.entryForm;
+      const ticker = (f.ticker || '').trim().toUpperCase();
+      if (!ticker) { this.toast('Ticker required', 'error'); return; }
+      const n = v => (v === '' || v === null || v === undefined) ? null : parseFloat(v);
+      const body = { zone_low: n(f.zone_low), zone_high: n(f.zone_high), invalidation: n(f.invalidation),
+                     horizon: f.horizon, thesis: f.thesis || null, notes: f.notes || null };
+      if (body.zone_low != null && body.zone_high != null && body.zone_low > body.zone_high) { this.toast('Zone low is above zone high', 'error'); return; }
+      this.busy.entry = true;
+      try {
+        let d;
+        if (f.existing) d = await this.api('PATCH', '/api/entries/' + ticker, { ...body, status: f.status });
+        else d = await this.api('POST', '/api/entries', { ticker, ...body });
+        this.entryModal = false;
+        const added = d.added_to_watchlist;
+        const noZone = body.zone_low == null && body.zone_high == null;
+        this.toast(ticker + (f.existing ? ' updated' : ' on the entry watch list') +
+                   (added ? ' (added to the watchlist, ' + (added.backfill.fired ? 'backfill fired' : (added.backfill.reason || 'no backfill')) + ')' : '') +
+                   (!f.existing && d.signal && d.signal.fired ? (noZone ? '. The analyst is proposing a zone, about a minute.' : '. Analyst pass started.') : '') +
+                   (!f.existing && d.signal && !d.signal.fired && d.signal.reason ? '. Analyst not started: ' + d.signal.reason : ''), 'success', 8000);
+        await this.loadEntries();
+        if (added) await this.loadWatchlist();
+        if (this.screen === 'ticker') this.$nextTick(() => { this.destroyCharts(); this.drawCharts(); });
+      } catch (e) { this.toast(ticker + ': ' + e.message, 'error', 8000); }
+      this.busy.entry = false;
+      this.refreshIcons();
+    },
+
+    // The suggestion is applicable when it is grounded and differs from what the row holds.
+    canApplyZone(e) {
+      const z = e.suggested_zone;
+      if (!z || z.low == null || z.high == null || z.ungrounded) return false;
+      return e.zone_low !== z.low || e.zone_high !== z.high;
+    },
+    async acceptZone(e) {
+      this.busy.entry = true;
+      try {
+        await this.api('POST', '/api/entries/' + e.ticker + '/accept-zone');
+        this.toast(e.ticker + ': zone ' + this.num(e.suggested_zone.low) + ' to ' + this.num(e.suggested_zone.high) + ' applied', 'success');
+        await this.loadEntries();
+      } catch (err) { this.toast(e.ticker + ': ' + err.message, 'error'); }
+      this.busy.entry = false;
+      this.refreshIcons();
+    },
+
+    async dropEntry(ticker) {
+      if (!confirm('Drop ' + ticker + ' from the entry watch list? Its history and signals are kept.')) return;
+      this.busy.entry = true;
+      try {
+        await this.api('DELETE', '/api/entries/' + ticker);
+        this.entryModal = false;
+        this.toast(ticker + ' dropped', 'success');
+        await this.loadEntries();
+      } catch (e) { this.toast(ticker + ': ' + e.message, 'error'); }
+      this.busy.entry = false;
+    },
+
+    // Entered: mark the row, then open the position editor so the fill is recorded.
+    // Add rows come back as watching with the zone cleared; the next pass proposes the next dip.
+    async enterEntry(e) {
+      try {
+        await this.api('PATCH', '/api/entries/' + e.ticker, { status: 'entered' });
+        this.toast(e.kind === 'add' ? e.ticker + ' add recorded. Update the position, then signal for the next dip zone.'
+                                    : e.ticker + ' marked entered. Record the fill.', 'success', 6000);
+        await this.loadEntries();
+        this.openPosition({ ticker: e.ticker, qty: e.qty, avg_cost: e.avg_cost != null ? e.avg_cost : this.livePrice(e) });
+      } catch (err) { this.toast(e.ticker + ': ' + err.message, 'error'); }
+    },
+
+    async signalEntries(tickers) {
+      this.busy.signal = true;
+      try {
+        const d = await this.api('POST', '/api/entries/signal', tickers ? { tickers } : {});
+        const n = d.analyses.length;
+        this.toast(n ? n + ' entry pass' + (n === 1 ? '' : 'es') + ' started for ' + d.tickers.length + ' tickers'
+                     : 'Already running for ' + d.already_running.join(', '), 'success', 6000);
+        await this.loadEntries();
+      } catch (e) { this.toast('Signal: ' + e.message, 'error', 8000); }
+      this.busy.signal = false;
+      this.refreshIcons();
+    },
+
+    // ---------- HTTP ----------
+    async api(method, path, body) {
+      if (!this.token) throw new Error('No token');
+      const opts = { method, headers: { 'Authorization': 'Bearer ' + this.token } };
+      if (body !== undefined) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+      const resp = await fetch(path, opts);
+      if (resp.status === 401 || resp.status === 403) {
+        this.toast('Auth rejected (' + resp.status + '). Re-enter token.', 'error');
+        this.clearToken();
+        throw new Error('auth_failed');
+      }
+      const text = await resp.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (e) { /* leave raw */ }
+      if (!resp.ok) {
+        const d = (data && (data.detail?.detail || data.detail || data.error)) || text || ('HTTP ' + resp.status);
+        throw new Error(typeof d === 'string' ? d : JSON.stringify(d));
+      }
+      return data;
+    },
+
+    // ---------- loaders ----------
+    async loadReports() {
+      try {
+        const d = await this.api('GET', '/api/reports?limit=90');
+        this.reports = d.reports;
+      } catch (e) { this.toast('Reports: ' + e.message, 'error'); }
+    },
+
+    async loadReport(as_of) {
+      if (!as_of) return;
+      this.selectedDate = as_of;
+      try {
+        this.report = await this.api('GET', '/api/reports/' + as_of);
+        const s = await this.api('GET', '/api/reports/' + as_of + '/scores');
+        this.scores = s.scores;
+        await this.loadAnalysis(this.report.analysis ? this.report.analysis.id : null);
+      } catch (e) {
+        this.report = null; this.scores = []; this.analysis = null;
+        this.toast('Brief: ' + e.message, 'error');
+      }
+      this.refreshIcons();
+    },
+
+    openReport(as_of) { window.location.hash = 'today'; this.loadReport(as_of); },
+
+    async loadWatchlist() {
+      try {
+        const d = await this.api('GET', '/api/watchlist');
+        this.watchlist = d.watchlist;
+        this.allTags = d.tags;
+        this.counts = { active: d.active, retired: d.retired };
+      } catch (e) { this.toast('Watchlist: ' + e.message, 'error'); }
+    },
+
+    async loadPositions() {
+      try {
+        const d = await this.api('GET', '/api/positions');
+        this.positions = d.positions;
+      } catch (e) { this.toast('Positions: ' + e.message, 'error'); }
+    },
+
+    // ---------- live quotes ----------
+    startQuotePolling() {
+      if (this.quoteTimer) clearInterval(this.quoteTimer);
+      this.quoteTimer = setInterval(() => {
+        // Nothing to gain from polling a hidden tab or a closed market.
+        if (document.hidden || !this.token || !this.marketOpen) return;
+        this.loadQuotes();
+      }, this.QUOTE_MS);
+    },
+
+    startSpendPolling() {
+      if (this.spendTimer) clearInterval(this.spendTimer);
+      // Spend changes from scheduled/background passes too (06:00 daily, hourly entry), so poll
+      // regardless of market state; skip only a hidden tab.
+      this.spendTimer = setInterval(() => {
+        if (document.hidden || !this.token) return;
+        this.loadSpend();
+        this.loadDataHealth();
+      }, this.SPEND_MS);
+    },
+
+    healthHeadline(h) {
+      if (!h) return '';
+      const bad = (h.checks || []).filter(c => !c.ok).map(c => c.key);
+      if (bad.some(k => k === 'prices' || k === 'scores' || k === 'report')) return 'Pipeline data is stale';
+      if (bad.includes('run')) return 'Last daily run had problems';
+      if (bad.includes('analysis')) return 'Daily analysis is missing';
+      if (bad.includes('coverage')) return 'Some tickers have no price';
+      return 'Pipeline status ' + h.status;
+    },
+
+    async loadDataHealth() {
+      if (!this.token) return;
+      try { this.dataHealth = await this.api('GET', '/api/health/data'); } catch (e) { /* non-fatal: keep last value */ }
+    },
+
+    async loadSpend() {
+      if (!this.token) return;
+      try { this.spend = await this.api('GET', '/api/analyst/spend'); } catch (e) { /* non-fatal: keep last value */ }
+    },
+
+    async openSpend() {
+      this.spendModal = true;
+      this.spendBusy = true;
+      try {
+        this.spendDetail = await this.api('GET', '/api/analyst/spend/detail');
+        this.spend = { as_of: this.spendDetail.as_of, spent: this.spendDetail.spent, cap: this.spendDetail.cap,
+                       count: this.spendDetail.count, remaining: this.spendDetail.remaining, pct_used: this.spendDetail.pct_used };
+      } catch (e) { this.toast('Spend detail: ' + e.message, 'error'); }
+      this.spendBusy = false;
+      this.$nextTick(() => this.refreshIcons());
+    },
+
+    async loadQuotes() {
+      if (!this.token) return;
+      try {
+        const d = await this.api('GET', '/api/quotes');
+        this.quotes = d.quotes || {};
+        this.quoteAt = d.fetched_at;
+        this.quoteFeed = d.feed;
+        this.marketOpen = d.market_open;
+        this.quoteError = d.error || null;
+      } catch (e) {
+        this.quoteError = e.message;      // stale prices beat a blank screen
+      }
+    },
+
+    quoteFor(ticker) { return this.quotes[ticker] || null; },
+
+    async loadTicker() {
+      const sym = this.tickerSym;
+      this.destroyCharts();
+      this.tk = { row: null, bars: [], news: [], scores: [], history: [], markers: [] };
+      if (!this.watchlist.length) await this.loadWatchlist();
+      if (!this.positions.length) await this.loadPositions();
+      this.tk.row = this.watchlist.find(w => w.ticker === sym) || null;
+
+      try {
+        const [pr, nw, sc] = await Promise.all([
+          this.api('GET', `/api/tickers/${sym}/prices?days=${this.tkDays}`),
+          this.api('GET', `/api/tickers/${sym}/news?days=30`),
+          this.api('GET', `/api/tickers/${sym}/scores?days=${Math.min(this.tkDays, 1000)}`),
+        ]);
+        if (this.tickerSym !== sym) return;            // navigated away mid-flight
+        this.tk.bars = pr.bars; this.tk.news = nw.articles; this.tk.scores = sc.scores;
+      } catch (e) { this.toast(sym + ': ' + e.message, 'error'); return; }
+
+      if (this.tkPosition) {
+        try {
+          const h = await this.api('GET', `/api/positions/${sym}/history`);
+          this.tk.history = h.history;
+          this.tk.markers = this.positionMarkers(h.history);
+        } catch (e) { /* markers are decoration, not a reason to fail the screen */ }
+      }
+
+      this.$nextTick(() => this.drawCharts());
+      this.refreshIcons();
+    },
+
+    async setTickerRange(days) {
+      this.tkDays = days;
+      await this.loadTicker();
+    },
+
+    async patchTicker(changes) {
+      if (!this.tk.row) return;
+      await this.patch(this.tk.row, changes);
+    },
+
+    async loadRuns() {
+      try { this.runs = (await this.api('GET', '/api/runs?limit=50')).runs; }
+      catch (e) { this.toast('Runs: ' + e.message, 'error'); }
+    },
+
+    // ---------- settings ----------
+    STRUCTURED_KEYS: ['analyst_model', 'analyst_cheap_model', 'analyst_deep_model', 'analyst_bakeoff_models', 'analyst_providers',
+                      'analyst_daily_cap_usd', 'analyst_max_fetches', 'analyst_search_provider', 'analyst_hitl',
+                      'analyst_share_positions_offsite', 'analyst_prompt_version', 'news_domains', 'notify_email',
+                      'email_position_values', 'weights', 'quota', 'entry_signal_auto', 'entry_near_pct', 'entry_signal_batch',
+                      'entry_watch_holdings', 'entry_dca_min_discount', 'app_base_url', 'telegram'],
+    parseRef(ref) {
+      ref = String(ref || '');
+      const m = ref.match(/^([a-z][a-z0-9_-]{1,31}):(.+)$/);
+      return m && !ref.startsWith('http') ? { provider: m[1], model: m[2] } : { provider: 'openrouter', model: ref };
+    },
+    makeRef(r) { return r.provider === 'openrouter' ? r.model : r.provider + ':' + r.model; },
+    async loadSettings() {
+      try {
+        const [c, p] = await Promise.all([this.api('GET', '/api/config'), this.api('GET', '/api/providers')]);
+        this.cfg = c.config; this.configUpdated = c.updated_at;
+        this.cfgRaw = Object.fromEntries(Object.entries(c.config).map(([k, v]) => [k, JSON.stringify(v)]));
+        this.weights = Object.assign({ momentum: 0, value: 0, sentiment: 0, catalyst: 0 }, c.config.weights || {});
+        this.telegram = Object.assign({ chat_id: '', send_document: true }, c.config.telegram || {});
+        this.newsDomainsText = (c.config.news_domains || []).join('\n');
+        for (const r of this.roleDefs) { const ref = this.parseRef(c.config[r.key]); this.roles[r.key] = { provider: ref.provider, model: ref.model, q: '' }; }
+        this.bakeoff = (c.config.analyst_bakeoff_models || []).map(x => this.parseRef(x));
+        this.providers = p.providers; this.providerKinds = p.kinds;
+        const enabled = this.providers.filter(x => x.enabled).map(x => x.id);
+        await Promise.all(enabled.map(id => this.ensureCatalog(id)));
+      } catch (e) { this.toast('Settings: ' + e.message, 'error'); }
+      this.refreshIcons();
+    },
+    async ensureCatalog(pid, refresh = false) {
+      if (!pid || (this.catalogs[pid] && !refresh)) return;
+      try { this.catalogs[pid] = await this.api('GET', '/api/models?provider=' + encodeURIComponent(pid) + (refresh ? '&refresh=true' : '')); }
+      catch (e) { this.catalogs[pid] = { models: [], source: 'error', error: e.message }; }
+    },
+    catalogHint(pid) {
+      const c = this.catalogs[pid];
+      if (!c) return 'loading catalog';
+      if (c.source === 'fallback' || c.source === 'error') return 'catalog unavailable' + (c.key_present === false ? ' (key not set)' : '') + (c.error ? ': ' + c.error : '');
+      const ago = c.cached_at ? Math.max(0, Math.round((Date.now() / 1000 - c.cached_at) / 60)) : 0;
+      return c.models.length + ' models · synced ' + (ago < 1 ? 'just now' : ago + ' min ago');
+    },
+    filteredModels(pid, q, current) {
+      const c = this.catalogs[pid]; if (!c) return [];
+      const needle = (q || '').toLowerCase();
+      let list = c.models.filter(m => !needle || m.id.toLowerCase().includes(needle) || (m.name || '').toLowerCase().includes(needle));
+      list.sort((a, b) => a.id.localeCompare(b.id));
+      if (list.length > 300) list = list.slice(0, 300);
+      if (current && !list.some(m => m.id === current)) { const cur = c.models.find(m => m.id === current); if (cur) list.unshift(cur); }
+      return list;
+    },
+    modelInCatalog(r) { const c = this.catalogs[r.provider]; return !r.model || !c || c.models.some(m => m.id === r.model); },
+    isStale(r) { const c = this.catalogs[r.provider]; return !!(r.model && c && c.source !== 'fallback' && c.source !== 'error' && !c.models.some(m => m.id === r.model)); },
+    modelMeta(r) {
+      const c = this.catalogs[r.provider]; const m = c && c.models.find(x => x.id === r.model); if (!m) return '';
+      const parts = [];
+      if (m.price_in != null) parts.push('$' + m.price_in + ' in / $' + m.price_out + ' out per M');
+      if (m.context) parts.push((m.context / 1000).toFixed(0) + 'k ctx');
+      if (m.tools === false) parts.push('no tool calling'); if (m.structured === false) parts.push('no structured output');
+      return parts.join(' · ');
+    },
+    modelLabel(m) {
+      let l = m.id;
+      if (m.price_in != null) l += '  ·  $' + m.price_in + ' / $' + m.price_out;
+      if (m.tools === false) l += '  ·  no tools';
+      return l;
+    },
+    newProvKind() { const k = this.providerKinds[this.newProv.kind] || {}; this.newProv.base_url = k.base_url || ''; this.newProv.key_env = k.key_env || ''; },
+    addProvider() {
+      const n = this.newProv;
+      if (!n.id || !n.kind) { this.toast('Provider needs an id and a kind', 'error'); return; }
+      if (this.providers.some(p => p.id === n.id)) { this.toast('Provider id already exists', 'error'); return; }
+      this.providers.push({ id: n.id.toLowerCase(), name: n.name || n.id, kind: n.kind, base_url: n.base_url, key_env: n.key_env, enabled: true, key_present: false });
+      this.newProv = { id: '', name: '', kind: 'openrouter', base_url: '', key_env: '' };
+      this.showAddProv = false;
+      this.refreshIcons();
+    },
+    removeProvider(i) {
+      const id = this.providers[i].id;
+      const used = this.roleDefs.some(r => this.roles[r.key].provider === id) || this.bakeoff.some(b => b.provider === id);
+      if (used) { this.toast('A role or the bake-off set still uses ' + id, 'error'); return; }
+      this.providers.splice(i, 1);
+    },
+    async testProvider(pid) {
+      this.busy.test = pid;
+      try { this.testResult[pid] = await this.api('POST', '/api/providers/' + pid + '/test'); }
+      catch (e) { this.testResult[pid] = { ok: false, error: e.message }; }
+      this.busy.test = ''; this.refreshIcons();
+    },
+    testSummary(pid) {
+      const t = this.testResult[pid]; if (!t) return '';
+      if (!t.ok) return 'failed: ' + (t.error || 'unknown');
+      let s = 'ok · ' + t.models + ' models · ' + t.ms + ' ms';
+      if (t.key && t.key.usage != null) s += ' · key used $' + Number(t.key.usage).toFixed(2) + (t.key.limit != null ? ' of $' + t.key.limit : '');
+      if (!t.key_present) s += ' · key not set (catalog is public)';
+      return s;
+    },
+    addBakeoff() {
+      const r = { provider: this.bakeAdd.provider, model: this.bakeAdd.model };
+      if (!r.model) return;
+      if (!this.bakeoff.some(b => b.provider === r.provider && b.model === r.model)) this.bakeoff.push(r);
+      this.bakeAdd.model = '';
+    },
+    weightSum() { return ['momentum', 'value', 'sentiment', 'catalyst'].reduce((a, k) => a + (Number(this.weights[k]) || 0), 0); },
+    advancedKeys() { return Object.keys(this.cfgRaw).filter(k => !this.STRUCTURED_KEYS.includes(k)).sort(); },
+    async saveSettings() {
+      this.busy.config = true;
+      const values = {};
+      try {
+        for (const r of this.roleDefs) { if (!this.roles[r.key].model) throw new Error(r.label + ' has no model'); values[r.key] = this.makeRef(this.roles[r.key]); }
+        values.analyst_bakeoff_models = this.bakeoff.map(b => this.makeRef(b));
+        for (const k of ['analyst_daily_cap_usd', 'analyst_max_fetches', 'analyst_search_provider', 'analyst_hitl', 'analyst_share_positions_offsite', 'notify_email', 'email_position_values',
+                         'entry_signal_auto', 'entry_near_pct', 'entry_signal_batch', 'entry_watch_holdings', 'entry_dca_min_discount']) {
+          if (this.cfg[k] !== undefined) values[k] = this.cfg[k];
+        }
+        values.analyst_daily_cap_usd = Number(values.analyst_daily_cap_usd); values.analyst_max_fetches = Number(values.analyst_max_fetches);
+        values.analyst_hitl = !!values.analyst_hitl; values.analyst_share_positions_offsite = !!values.analyst_share_positions_offsite;
+        if (values.entry_signal_auto !== undefined) values.entry_signal_auto = !!values.entry_signal_auto;
+        if (values.entry_near_pct !== undefined) values.entry_near_pct = Number(values.entry_near_pct);
+        if (values.entry_signal_batch !== undefined) values.entry_signal_batch = Math.max(1, Math.min(8, Number(values.entry_signal_batch) || 8));
+        if (values.entry_watch_holdings !== undefined) values.entry_watch_holdings = !!values.entry_watch_holdings;
+        if (values.entry_dca_min_discount !== undefined) values.entry_dca_min_discount = Math.max(0, Math.min(0.5, Number(values.entry_dca_min_discount) || 0));
+        values.notify_email = !!values.notify_email; values.email_position_values = !!values.email_position_values;
+        values.news_domains = this.newsDomainsText.split('\n').map(x => x.trim().toLowerCase()).filter(Boolean);
+        values.weights = Object.fromEntries(['momentum', 'value', 'sentiment', 'catalyst'].map(k => [k, Number(this.weights[k]) || 0]));
+        values.telegram = { chat_id: String(this.telegram.chat_id || '').trim(), send_document: !!this.telegram.send_document };
+        if (values.app_base_url !== undefined) values.app_base_url = String(values.app_base_url || '').trim().replace(/\/+$/, '');
+        if (Math.abs(this.weightSum() - 1) > 0.001) throw new Error('Score weights must sum to 1 (now ' + this.weightSum().toFixed(2) + ')');
+        for (const k of ['quota', ...this.advancedKeys()]) { if (this.cfgRaw[k] !== undefined) values[k] = JSON.parse(this.cfgRaw[k]); }
+      } catch (e) {
+        this.toast(e.message, 'error'); this.busy.config = false; return;
+      }
+      try {
+        await this.api('PUT', '/api/providers', { providers: this.providers.map(({ id, name, kind, base_url, key_env, enabled }) => ({ id, name, kind, base_url, key_env, enabled })) });
+        await this.api('PUT', '/api/config', { values });
+        this.toast('Settings saved', 'success');
+        await this.loadSettings();
+      } catch (e) { this.toast('Settings: ' + e.message, 'error'); }
+      this.busy.config = false;
+      this.refreshIcons();
+    },
+
+    // ---------- charts ----------
+    destroyCharts() {
+      // Disconnect the observer first. It outlives the chart otherwise and fires
+      // applyOptions against a disposed object on every screen change.
+      for (const c of this.charts) {
+        try { c.ro.disconnect(); } catch (e) { /* never observed */ }
+        try { c.chart.remove(); } catch (e) { /* already gone */ }
+      }
+      this.charts = [];
+    },
+
+    positionMarkers(history) {
+      // Oldest first so the arrows read left to right with the price.
+      return [...history].reverse().map(h => ({
+        time: (h.changed_at || '').slice(0, 10),
+        position: h.qty > 0 ? 'belowBar' : 'aboveBar',
+        color: h.qty > 0 ? '#34d399' : '#f87171',
+        shape: h.qty > 0 ? 'arrowUp' : 'arrowDown',
+        text: h.qty > 0 ? this.num(h.qty, 3) + ' sh' : 'closed',
+      }));
+    },
+
+    chartBase(el, height) {
+      const chart = LightweightCharts.createChart(el, {
+        width: el.clientWidth, height,
+        layout: { background: { color: '#0a0e18' }, textColor: '#7ea8cc', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11 },
+        grid: { vertLines: { color: '#0d1526' }, horzLines: { color: 'rgba(56,189,248,0.08)' } },
+        rightPriceScale: { borderColor: 'rgba(56,189,248,0.16)' },
+        timeScale: { borderColor: 'rgba(56,189,248,0.16)' },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        handleScale: { axisPressedMouseMove: false },
+      });
+      const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
+      ro.observe(el);
+      this.charts.push({ chart, ro });
+      return chart;
+    },
+
+    drawCharts() {
+      if (!window.LightweightCharts) { this.toast('Chart library did not load', 'error'); return; }
+      const bars = this.tk.bars;
+      if (!bars.length || !this.$refs.chartPrice) return;
+
+      // price + SMAs + volume
+      const price = this.chartBase(this.$refs.chartPrice, 360);
+      const candles = price.addCandlestickSeries({
+        upColor: '#34d399', downColor: '#f87171', borderUpColor: '#34d399',
+        borderDownColor: '#f87171', wickUpColor: '#34d399', wickDownColor: '#f87171',
+      });
+      candles.setData(bars.map(b => ({ time: b.as_of, open: b.open, high: b.high, low: b.low, close: b.close })));
+      if (this.tk.markers.length) candles.setMarkers(this.tk.markers);
+
+      for (const [key, color] of [['sma20', '#38bdf8'], ['sma50', '#f59e0b'], ['sma200', '#4a6a88']]) {
+        const pts = bars.filter(b => b[key] != null).map(b => ({ time: b.as_of, value: b[key] }));
+        if (pts.length) price.addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false }).setData(pts);
+      }
+
+      const vol = price.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
+      vol.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+      vol.setData(bars.map((b, i) => ({
+        time: b.as_of, value: b.volume,
+        color: (i > 0 && b.close < bars[i - 1].close) ? 'rgba(248,113,113,0.32)' : 'rgba(52,211,153,0.32)',
+      })));
+
+      if (this.tk.row && this.tk.row.target_entry) {
+        candles.createPriceLine({
+          price: this.tk.row.target_entry, color: '#38bdf8', lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dashed, title: 'target',
+        });
+      }
+      if (this.tkPosition && this.tkPosition.avg_cost) {
+        candles.createPriceLine({
+          price: this.tkPosition.avg_cost, color: '#f59e0b', lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dotted, title: 'avg cost',
+        });
+      }
+      // Entry zone as a pair of solid lines, invalidation in red.
+      const en = this.tkEntry;
+      if (en) {
+        for (const [v, title] of [[en.zone_low, 'zone low'], [en.zone_high, 'zone high']]) {
+          if (v != null) candles.createPriceLine({ price: v, color: '#34d399', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, title });
+        }
+        if (en.invalidation != null) candles.createPriceLine({ price: en.invalidation, color: '#f87171', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, title: 'invalidation' });
+      }
+
+      // RSI, sharing the price chart's visible range
+      const rsiPts = bars.filter(b => b.rsi14 != null).map(b => ({ time: b.as_of, value: b.rsi14 }));
+      if (rsiPts.length && this.$refs.chartRsi) {
+        const rsi = this.chartBase(this.$refs.chartRsi, 180);
+        const line = rsi.addLineSeries({ color: '#38bdf8', lineWidth: 2, priceLineVisible: false });
+        line.setData(rsiPts);
+        for (const [v, c] of [[70, '#f87171'], [30, '#34d399']]) {
+          line.createPriceLine({ price: v, color: c, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, title: String(v) });
+        }
+        this.linkRanges(price, rsi);
+      }
+
+      // composite history
+      const scPts = [...this.tk.scores]
+        .filter(x => x.composite != null)
+        .sort((a, b) => (a.as_of < b.as_of ? -1 : 1))
+        .map(x => ({ time: x.as_of, value: x.composite }));
+      if (scPts.length && this.$refs.chartScore) {
+        const sc = this.chartBase(this.$refs.chartScore, 180);
+        sc.addLineSeries({ color: '#34d399', lineWidth: 2, priceLineVisible: false })
+          .setData(scPts);
+      }
+
+      price.timeScale().fitContent();
+    },
+
+    linkRanges(a, b) {
+      // Two-way, guarded: applying a range fires the other chart's handler.
+      let busy = false;
+      const sync = (from, to) => from.timeScale().subscribeVisibleLogicalRangeChange(r => {
+        if (busy || !r) return;
+        busy = true;
+        try { to.timeScale().setVisibleLogicalRange(r); } finally { busy = false; }
+      });
+      sync(a, b); sync(b, a);
+    },
+
+    // ---------- actions ----------
+    async runNow() {
+      this.busy.run = true;
+      try {
+        await this.api('POST', '/api/runs/daily', {});
+        this.toast('Daily run fired. The brief lands when the pipeline finishes.', 'success');
+      } catch (e) { this.toast('Run now: ' + e.message, 'error', 8000); }
+      this.busy.run = false;
+      this.refreshIcons();
+    },
+
+    openAdd() {
+      this.addForm = { ticker: '', tags: '', target_entry: '', notes: '' };
+      this.addModal = true;
+      this.$nextTick(() => this.refreshIcons());
+    },
+
+    appendTag(t) {
+      const cur = this.addForm.tags.split(',').map(s => s.trim()).filter(Boolean);
+      if (!cur.includes(t)) cur.push(t);
+      this.addForm.tags = cur.join(', ');
+    },
+
+    openEdit(w) {
+      const tags = (w.tags || []).filter(t => t !== 'holding' && t !== 'benchmark');
+      this.editForm = {
+        ticker: w.ticker, name: w.name || '', tags: tags.join(', '),
+        benchmark: (w.tags || []).includes('benchmark'),
+        target_entry: w.target_entry ?? '', notes: w.notes || '',
+      };
+      this.editModal = true;
+      this.$nextTick(() => this.refreshIcons());
+    },
+
+    appendEditTag(t) {
+      if (t === 'holding' || t === 'benchmark') return;
+      const cur = this.editForm.tags.split(',').map(s => s.trim()).filter(Boolean);
+      if (!cur.includes(t)) cur.push(t);
+      this.editForm.tags = cur.join(', ');
+    },
+
+    async submitEdit() {
+      const row = this.watchlist.find(w => w.ticker === this.editForm.ticker);
+      if (!row) { this.editModal = false; return; }
+      const tags = this.editForm.tags.split(',').map(s => s.trim()).filter(Boolean)
+        .filter(t => t !== 'holding' && t !== 'benchmark');
+      if (this.editForm.benchmark) tags.push('benchmark');
+      const changes = {
+        name: this.editForm.name.trim() || null,
+        tags,
+        target_entry: this.editForm.target_entry === '' ? null : parseFloat(this.editForm.target_entry),
+        notes: this.editForm.notes || null,
+      };
+      await this.patch(row, changes);
+      this.editModal = false;
+      await this.loadWatchlist();
+    },
+
+    async submitAdd() {
+      const ticker = (this.addForm.ticker || '').trim().toUpperCase();
+      if (!ticker) { this.toast('Ticker required', 'error'); return; }
+      this.busy.add = true;
+      try {
+        const body = {
+          ticker,
+          tags: this.addForm.tags.split(',').map(s => s.trim()).filter(Boolean),
+          target_entry: this.addForm.target_entry ? parseFloat(this.addForm.target_entry) : null,
+          notes: this.addForm.notes || null,
+        };
+        const d = await this.api('POST', '/api/watchlist', body);
+        const bf = d.backfill.fired ? 'backfill fired' : (d.backfill.error ? 'backfill FAILED: ' + d.backfill.error : (d.backfill.reason || 'no backfill'));
+        this.toast(ticker + ' added (' + (d.profile.name || ticker) + '), ' + bf, d.backfill.error ? 'error' : 'success', 8000);
+        this.addModal = false;
+        await this.loadWatchlist();
+      } catch (e) { this.toast('Add ' + ticker + ': ' + e.message, 'error', 8000); }
+      this.busy.add = false;
+      this.refreshIcons();
+    },
+
+    // Open a fresh Add-position form (broker-fill mode), ticker not yet chosen.
+    newPosition() {
+      this.posForm = { ticker: '', mode: 'dollars', amount: '', fill_price: '', qty: '', avg_cost: '',
+                       opened_at: new Date().toISOString().slice(0, 10), notes: '', existing: false };
+      this.posModal = true;
+      this.$nextTick(() => this.refreshIcons());
+    },
+
+    openPosition(row) {
+      const held = this.positions.find(p => p.ticker === row.ticker);
+      const existing = !!(held || row.qty);
+      this.posForm = {
+        ticker: row.ticker,
+        mode: existing ? 'shares' : 'dollars',
+        amount: '', fill_price: '',
+        qty: held ? held.qty : (row.qty ?? ''),
+        avg_cost: held ? (held.avg_cost ?? '') : (row.avg_cost ?? ''),
+        opened_at: held && held.opened_at ? held.opened_at : '',
+        notes: held ? (held.notes || '') : '',
+        existing,
+      };
+      this.posModal = true;
+      this.$nextTick(() => this.refreshIcons());
+    },
+
+    async savePosition() {
+      const ticker = (this.posForm.ticker || '').trim().toUpperCase();
+      if (!ticker) { this.toast('Ticker is required', 'error'); return; }
+      const { qty, avg_cost } = this.posComputed;
+      if (!Number.isFinite(qty) || qty <= 0) {
+        this.toast(this.posForm.mode === 'dollars' ? 'Enter amount spent and fill price' : 'Shares must be greater than zero', 'error');
+        return;
+      }
+      this.busy.pos = true;
+      try {
+        const body = {
+          qty,
+          avg_cost: Number.isFinite(avg_cost) ? avg_cost : null,
+          opened_at: this.posForm.opened_at || null,
+          notes: this.posForm.notes || null,
+        };
+        const d = await this.api('PUT', '/api/positions/' + ticker, body);
+        this.positions = d.positions;
+        this.toast(ticker + ': ' + (Math.round(qty * 1e6) / 1e6) + ' shares saved', 'success');
+        this.posModal = false;
+        await this.loadWatchlist();
+      } catch (e) { this.toast(ticker + ': ' + e.message, 'error', 8000); }
+      this.busy.pos = false;
+      this.refreshIcons();
+    },
+
+    async closePosition(ticker) {
+      if (!confirm('Close the ' + ticker + ' position? The history row is kept.')) return;
+      this.busy.pos = true;
+      try {
+        const d = await this.api('DELETE', '/api/positions/' + ticker);
+        this.positions = d.positions;
+        this.toast(ticker + ' position closed', 'success');
+        this.posModal = false;
+        await this.loadWatchlist();
+      } catch (e) { this.toast(ticker + ': ' + e.message, 'error', 8000); }
+      this.busy.pos = false;
+      this.refreshIcons();
+    },
+
+    async patch(row, changes) {
+      try {
+        await this.api('PATCH', '/api/watchlist/' + row.ticker, changes);
+        Object.assign(row, changes);
+        if ('active' in changes) { this.toast(row.ticker + (changes.active ? ' reactivated' : ' retired'), 'success'); await this.loadWatchlist(); }
+      } catch (e) { this.toast(row.ticker + ': ' + e.message, 'error'); }
+      this.refreshIcons();
+    },
+
+    sortBy(key) {
+      if (this.sort.key === key) this.sort.dir = this.sort.dir === 'asc' ? 'desc' : 'asc';
+      else this.sort = { key, dir: key === 'ticker' ? 'asc' : 'desc' };
+    },
+
+    // ---------- token ----------
+    saveToken() {
+      const t = (this.tokenInput || '').trim();
+      if (!t) return;
+      this.token = t;
+      localStorage.setItem('stock_intel_token', t);
+      this.tokenInput = '';
+      this.loadAll();
+    },
+
+    clearToken() {
+      this.token = '';
+      localStorage.removeItem('stock_intel_token');
+    },
+
+    // ---------- formatting ----------
+    toast(msg, kind = 'info', ttl = 4000) {
+      const id = Date.now() + Math.random();
+      this.toasts.push({ id, msg, kind });
+      this.$nextTick(() => this.refreshIcons());
+      if (ttl > 0) setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, ttl);
+    },
+
+    refreshIcons() { this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); },
+
+    // ---------- analyst ----------
+    async loadAnalysis(id) {
+      clearTimeout(this.analysisTimer);
+      if (!id) { this.analysis = null; return; }
+      try {
+        const d = await this.api('GET', '/api/analyses/' + id);
+        this.analysis = d.analysis;
+        if (this.analysis.output) {
+          const o = this.analysis.output;
+          for (const k of ['market_read', 'holdings', 'entries', 'avoid', 'questions', 'data_gaps']) o[k] = o[k] || [];
+        }
+        if (this.analysisBusy()) this.analysisTimer = setTimeout(() => this.loadAnalysis(id), 5000);
+        this.loadSpend();   // the daily/re-analyze pass adds to today's spend when it lands
+        this.refreshIcons();
+      } catch (e) { this.toast('Analysis: ' + e.message, 'error'); }
+    },
+    analysisBusy() { return !!this.analysis && (this.analysis.status === 'pending' || this.analysis.status === 'running'); },
+    async reanalyze() {
+      if (!this.report) return;
+      this.busy.analyze = true;
+      try {
+        const d = await this.api('POST', '/api/reports/' + this.report.report.as_of + '/analyze', {});
+        this.toast(d.already_running ? 'Analysis already running' : 'Analyst started', 'success');
+        await this.loadAnalysis(d.analysis_id);
+        this.loadReports();
+      } catch (e) { this.toast('Analyze: ' + e.message, 'error'); }
+      this.busy.analyze = false;
+    },
+    async feedback(rating) {
+      if (!this.analysis) return;
+      this.busy.feedback = true;
+      try {
+        await this.api('POST', '/api/analyses/' + this.analysis.id + '/feedback', { rating, note: this.fbNote || null });
+        this.fbNote = '';
+        this.toast('Feedback saved', 'success');
+        await this.loadAnalysis(this.analysis.id);
+      } catch (e) { this.toast('Feedback: ' + e.message, 'error'); }
+      this.busy.feedback = false;
+    },
+    fbVote(a) { return a && a.feedback && a.feedback.length ? a.feedback[0].rating : null; },
+    stanceClass(s) { return s === 'add' ? 'pill-flag' : (s === 'trim' ? 'pill-risk' : (s === 'watch' ? 'pill-warn' : 'pill-hold')); },
+    // analysisId: which analysis row holds the sources; omitted means the Today panel's analysis.
+    chips(claim, analysisId) {
+      if (!claim) return '';
+      const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const aid = analysisId ? ` data-aid="${esc(analysisId)}"` : '';
+      const parts = (claim.cites || []).map(id => {
+        const short = id.replace(/^db:/, '').split(':').slice(0, 2).join(':');
+        return `<button type="button" class="cite" data-ref="${esc(id)}"${aid} title="${esc(id)}">${esc(short)}</button>`;
+      });
+      if (claim.ungrounded && claim.ungrounded.length) parts.push(`<span class="cite cite-bad" title="level not within 15% of a cited level">ungrounded ${esc(claim.ungrounded.join(', '))}</span>`);
+      return parts.join(' ');
+    },
+    async openSource(ref, analysisId) {
+      let sources = this.analysis ? (this.analysis.sources || []) : [];
+      if (analysisId) {
+        if (!this.sourceCache[analysisId]) {
+          try { this.sourceCache[analysisId] = (await this.api('GET', '/api/analyses/' + analysisId)).analysis.sources || []; }
+          catch (e) { this.sourceCache[analysisId] = []; }
+        }
+        sources = this.sourceCache[analysisId];
+      }
+      const src = sources.find(x => x.ref === ref);
+      this.source = src || { ref, kind: 'missing', excerpt: 'This citation is not among the stored sources.', payload: null };
+      this.refreshIcons();
+    },
+
+    mdHtml(md) {
+      if (!md) return '';
+      return colorSigned(DOMPurify.sanitize(marked.parse(md)));
+    },
+
+    money(v, dp = 2) {
+      if (v === null || v === undefined || v === '') return '-';
+      const n = Number(v);
+      return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+    },
+    num(v, dp = 2) { return (v === null || v === undefined || v === '') ? '-' : Number(v).toFixed(dp); },
+    shortModel(m) { return m ? String(m).split('/').pop() : '-'; },
+    fmtTokens(n) { if (n === null || n === undefined) return '-'; return n >= 1000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'k' : String(n); },
+    pct(v) { return (v === null || v === undefined) ? '-' : (Number(v) * 100).toFixed(1) + '%'; },
+    signClass(v) { if (v === null || v === undefined) return 'text-ink-400'; return Number(v) > 0 ? 'text-ok' : (Number(v) < 0 ? 'text-danger' : ''); },
+    pretty(o) { return o ? JSON.stringify(o, null, 2) : 'no reasons stored'; },
+    fmtClock(ts) {
+      if (!ts) return '';
+      return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    },
+    fmtTime(ts) { if (!ts) return '-'; const d = new Date(ts); return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); },
+    duration(r) {
+      if (!r.started_at || !r.finished_at) return '-';
+      const s = (new Date(r.finished_at) - new Date(r.started_at)) / 1000;
+      return s < 60 ? s.toFixed(0) + 's' : (s / 60).toFixed(1) + 'm';
+    },
+    tagClass(t) {
+      if (t === 'holding') return 'pill-hold';
+      if (t === 'benchmark') return 'pill-bench';
+      return 'pill-tag';
+    },
+  };
+}
+</script>
+</body>
+</html>

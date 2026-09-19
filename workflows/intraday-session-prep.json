@@ -1,0 +1,506 @@
+{
+  "id": "siIntradayPrep01",
+  "name": "stock-intel: Intraday Session Prep (WF-01)",
+  "tags": [
+    "stock-intel",
+    "intraday"
+  ],
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "lLH10M2Hbm7hjQip"
+  },
+  "nodes": [
+    {
+      "id": "c1111111-1111-4111-8111-111111111111",
+      "name": "Prep + premarket scan",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * 1-5"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "*/5 8-9 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c2222222-2222-4222-8222-222222222222",
+      "name": "Get today calendar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        336,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "url": "https://paper-api.alpaca.markets/v2/calendar",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "start",
+              "value": "={{ new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) }}"
+            },
+            {
+              "name": "end",
+              "value": "={{ new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "siCredAlpaca0001",
+          "name": "Stock Intel Alpaca (headers)"
+        }
+      }
+    },
+    {
+      "id": "c3333333-3333-4333-8333-333333333333",
+      "name": "Session gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Stop (return no items) on a non-trading day. Otherwise emit today's window + phase.\n// phase: prep (early, e.g. 06:00), scan (OPEN-30m..OPEN-5m), freeze (>= OPEN-5m).\nlet cal = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  if (Array.isArray(j)) cal.push(...j);\n  else if (j && j.date && (j.open || j.close)) cal.push(j);\n  else if (j && Array.isArray(j.data)) cal.push(...j.data);\n}\nconst todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });\nconst row = cal.find(c => c.date === todayET);\nif (!row) return [];\nconst parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());\nconst hh = Number(parts.find(p => p.type === 'hour').value) % 24;\nconst mm = Number(parts.find(p => p.type === 'minute').value);\nconst nowMin = hh * 60 + mm;\nconst [oh, om] = String(row.open).split(':').map(Number);\nconst openMin = oh * 60 + om;\nlet phase = 'prep';\nif (nowMin >= openMin - 5) phase = 'freeze';\nelse if (nowMin >= openMin - 30) phase = 'scan';\nreturn [{ json: { trade_date: todayET, open_time: row.open, close_time: row.close, early_close: String(row.close) !== '16:00', phase, now_et_min: nowMin } }];"
+      }
+    },
+    {
+      "id": "c4444444-4444-4444-8444-444444444444",
+      "name": "Movers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        928,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "url": "https://data.alpaca.markets/v1beta1/screener/stocks/movers",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "top",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "siCredAlpaca0001",
+          "name": "Stock Intel Alpaca (headers)"
+        }
+      }
+    },
+    {
+      "id": "c5555555-5555-4555-8555-555555555555",
+      "name": "Most actives",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1264,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "url": "https://data.alpaca.markets/v1beta1/screener/stocks/most-actives",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "by",
+              "value": "volume"
+            },
+            {
+              "name": "top",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "siCredAlpaca0001",
+          "name": "Stock Intel Alpaca (headers)"
+        }
+      }
+    },
+    {
+      "id": "c6666666-6666-4666-8666-666666666666",
+      "name": "Build candidate pool",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Union of movers gainers + most-actives (liquidity) into one candidate pool (benchmarks excluded).\nconst gate = $('Session gate').first().json;\nconst movers = $('Movers').first().json || {};\nconst ma = $('Most actives').first().json || {};\nconst gainers = movers.gainers || [];\nconst actives = ma.most_actives || [];\nconst BENCH = ['SPY', 'QQQ'];\nconst set = new Set();\nfor (const g of gainers) if (g.symbol) set.add(g.symbol);\nfor (const a of actives) if (a.symbol) set.add(a.symbol);\nfor (const b of BENCH) set.delete(b);\nconst pool = [...set].slice(0, 40);\nreturn [{ json: { ...gate, pool, symbols_csv: pool.join(','), bench_csv: BENCH.join(','), gainers_n: gainers.length, actives_n: actives.length } }];"
+      }
+    },
+    {
+      "id": "c7777777-7777-4777-8777-777777777777",
+      "name": "Snapshots",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1936,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "url": "https://data.alpaca.markets/v2/stocks/snapshots",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbols",
+              "value": "={{ $json.symbols_csv }}"
+            },
+            {
+              "name": "feed",
+              "value": "iex"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "siCredAlpaca0001",
+          "name": "Stock Intel Alpaca (headers)"
+        }
+      }
+    },
+    {
+      "id": "c8888888-8888-4888-8888-888888888888",
+      "name": "Rank + gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2272,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Frozen v0 ranking: liquidity-gated gap rank. Gates: price>=$5, dollar_vol>=FLOOR.\n// Rank survivors by abs(gap%) desc, cap 10, append SPY/QQQ benchmarks. Deterministic.\nconst base = $('Build candidate pool').first().json;\nconst snaps = $('Snapshots').first().json || {};\nconst movers = $('Movers').first().json || {};\nconst gm = {}; for (const g of (movers.gainers || [])) gm[g.symbol] = g;\nconst PRICE_FLOOR = 5, DVOL_FLOOR = 5000000, CAP = 10;\nconst rows = [];\nfor (const sym of base.pool) {\n  const s = snaps[sym] || {};\n  const db = s.dailyBar || {}, pdb = s.prevDailyBar || {}, lq = s.latestQuote || {}, lt = s.latestTrade || {};\n  const price = (db.c != null ? db.c : (lt.p != null ? lt.p : (gm[sym] ? gm[sym].price : null)));\n  const vol = (db.v != null ? db.v : null);\n  const prevC = (pdb.c != null ? pdb.c : null);\n  let gap = (gm[sym] && gm[sym].percent_change != null) ? gm[sym].percent_change\n            : ((price != null && prevC) ? ((price - prevC) / prevC * 100) : null);\n  const dvol = (price != null && vol != null) ? price * vol : null;\n  let spread_bps = null;\n  if (lq.ap && lq.bp && (lq.ap + lq.bp) > 0) spread_bps = Math.round(10000 * (lq.ap - lq.bp) / ((lq.ap + lq.bp) / 2) * 1000) / 1000;\n  const pass = price != null && price >= PRICE_FLOOR && dvol != null && dvol >= DVOL_FLOOR && gap != null;\n  rows.push({ symbol: sym, gap_pct: gap, price, dollar_vol: dvol, spread_bps, in_movers: !!gm[sym], pass });\n}\nconst ranked = rows.filter(r => r.pass).sort((a, b) => Math.abs(b.gap_pct) - Math.abs(a.gap_pct)).slice(0, CAP)\n  .map((r, i) => ({ symbol: r.symbol, role: 'candidate', rank: i + 1, gap_pct: r.gap_pct, price: r.price, dollar_vol: r.dollar_vol, spread_bps: r.spread_bps }));\nconst bench = (base.bench_csv || '').split(',').filter(Boolean).map(s => ({ symbol: s, role: 'benchmark' }));\nconst symbols = [...ranked, ...bench];\nconst cfg = { ranking: 'liq_gap_v0', price_floor: PRICE_FLOOR, dollar_vol_floor: DVOL_FLOOR, cap: CAP, benchmarks: bench.map(b => b.symbol) };\nreturn [{ json: {\n  trade_date: base.trade_date, open_time: base.open_time, close_time: base.close_time, early_close: base.early_close, phase: base.phase,\n  symbols_json: JSON.stringify(symbols), candidate_count: ranked.length,\n  scan_payload: JSON.stringify({ scanned: rows.length, ranked, gainers_n: base.gainers_n, actives_n: base.actives_n, at: new Date().toISOString() }),\n  discovery_cov: JSON.stringify({ pool: base.pool.length, gainers_n: base.gainers_n, actives_n: base.actives_n, passed: ranked.length }),\n  ranking_version: 'liq_gap_v0', config_hash: 'liq_gap_v0:' + JSON.stringify(cfg),\n  freshness: JSON.stringify({ quote_age_ms: 2000, bar_arrival_ms: 5000, heartbeat_stale_ms: 15000, dashboard_ms: 90000 })\n} }];"
+      }
+    },
+    {
+      "id": "c9999999-9999-4999-8999-999999999999",
+      "name": "Write scan snapshot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intraday.source_events\n  (session_id, source, event_type, event_at, available_at, received_at, feed, completeness, payload_hash, payload)\nVALUES (\n  uuid_generate_v5(uuid_ns_url(), 'intraday:' || $2),\n  'alpaca_screener', 'movers_scan', now(), now(), now(), 'iex', 'complete', md5($1), $1::jsonb\n);",
+        "options": {
+          "queryReplacement": "={{ [$json.scan_payload, $json.trade_date] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "ca000000-0000-4000-8000-000000000000",
+      "name": "Upsert calendar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        336,
+        400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intraday.calendar_versions (trade_date, open_at, close_at, early_close, is_open, source, version)\nVALUES (\n  $1::date,\n  ($1 || ' ' || $2)::timestamp AT TIME ZONE 'America/New_York',\n  ($1 || ' ' || $3)::timestamp AT TIME ZONE 'America/New_York',\n  $4::boolean, true, 'alpaca_calendar', 1\n)\nON CONFLICT (trade_date, source, version) DO NOTHING;",
+        "options": {
+          "queryReplacement": "={{ [$('Rank + gate').first().json.trade_date, $('Rank + gate').first().json.open_time, $('Rank + gate').first().json.close_time, $('Rank + gate').first().json.early_close] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "cb000000-0000-4000-8000-000000000000",
+      "name": "Commit / freeze manifest",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        672,
+        400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intraday.session_manifests\n  (session_id, trade_date, open_at, close_at, early_close, universe_id, discovery_cov, ranking_version,\n   membership_version, feed_mode, required_sources, freshness_ms, symbols, config_hash, frozen_at)\nVALUES (\n  uuid_generate_v5(uuid_ns_url(), 'intraday:' || $1),\n  $1::date,\n  ($1 || ' ' || $2)::timestamp AT TIME ZONE 'America/New_York',\n  ($1 || ' ' || $3)::timestamp AT TIME ZONE 'America/New_York',\n  $4::boolean, 'intraday_movers', $5::jsonb, $6,\n  to_char(now(), 'YYYYMMDD\"T\"HH24MISS'), 'engineering', ARRAY['alpaca_iex'], $7::jsonb,\n  CASE WHEN $8 = 'freeze' THEN $9::jsonb ELSE '[]'::jsonb END,\n  $10,\n  CASE WHEN $8 = 'freeze' THEN now() ELSE NULL END\n)\nON CONFLICT (session_id) DO UPDATE SET\n  open_at = EXCLUDED.open_at, close_at = EXCLUDED.close_at, early_close = EXCLUDED.early_close,\n  discovery_cov = EXCLUDED.discovery_cov, ranking_version = EXCLUDED.ranking_version,\n  freshness_ms = EXCLUDED.freshness_ms, config_hash = EXCLUDED.config_hash,\n  symbols = CASE WHEN $8 = 'freeze' AND intraday.session_manifests.frozen_at IS NULL\n                 THEN EXCLUDED.symbols ELSE intraday.session_manifests.symbols END,\n  membership_version = CASE WHEN $8 = 'freeze' AND intraday.session_manifests.frozen_at IS NULL\n                 THEN EXCLUDED.membership_version ELSE intraday.session_manifests.membership_version END,\n  frozen_at = CASE WHEN $8 = 'freeze' AND intraday.session_manifests.frozen_at IS NULL\n                 THEN now() ELSE intraday.session_manifests.frozen_at END\nRETURNING session_id, frozen_at, jsonb_array_length(symbols) AS n_symbols, config_hash;",
+        "options": {
+          "queryReplacement": "={{ (function(){ const r = $('Rank + gate').first().json; return [r.trade_date, r.open_time, r.close_time, r.early_close, r.discovery_cov, r.ranking_version, r.freshness, r.phase, r.symbols_json, r.config_hash]; })() }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "cc000000-0000-4000-8000-000000000000",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const r = $('Rank + gate').first().json;\nconst m = $json;\nreturn [{ json: { ok: true, phase: r.phase, trade_date: r.trade_date, candidates: r.candidate_count, session_id: m.session_id || null, frozen_at: m.frozen_at || null, symbols_committed: m.n_symbols != null ? m.n_symbols : 0 } }];"
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Triggers + session gate\n\n06:00 prep and every 5 min 08:00-09:55 ET. Get today's calendar; on a non-trading day the gate stops the run. phase = prep / scan / freeze (>= OPEN-5m).",
+        "width": 912,
+        "height": 352,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Discovery + rank\n\nUnion Alpaca movers (gap%) and most-actives (liquidity), enrich with one snapshots batch. Frozen v0: gate price>=$5 and dollar_vol>=$5M, rank by abs(gap%), cap 10 + SPY/QQQ benchmarks. Places no orders.",
+        "width": 1584,
+        "height": 352,
+        "color": 5
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        864,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Persist + freeze\n\nEach scan preserves a candidate snapshot and upserts the calendar. session_id = uuid_generate_v5, matching the recorder's bars. The manifest freezes once at OPEN-5m, never overwritten.",
+        "width": 1248,
+        "height": 352,
+        "color": 3
+      },
+      "id": "zone-03",
+      "name": "zone-03",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        256
+      ]
+    }
+  ],
+  "connections": {
+    "Prep + premarket scan": {
+      "main": [
+        [
+          {
+            "node": "Get today calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get today calendar": {
+      "main": [
+        [
+          {
+            "node": "Session gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Session gate": {
+      "main": [
+        [
+          {
+            "node": "Movers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Movers": {
+      "main": [
+        [
+          {
+            "node": "Most actives",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Most actives": {
+      "main": [
+        [
+          {
+            "node": "Build candidate pool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build candidate pool": {
+      "main": [
+        [
+          {
+            "node": "Snapshots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Snapshots": {
+      "main": [
+        [
+          {
+            "node": "Rank + gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rank + gate": {
+      "main": [
+        [
+          {
+            "node": "Write scan snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write scan snapshot": {
+      "main": [
+        [
+          {
+            "node": "Upsert calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert calendar": {
+      "main": [
+        [
+          {
+            "node": "Commit / freeze manifest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit / freeze manifest": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

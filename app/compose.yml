@@ -1,0 +1,22 @@
+services:
+  stock-intel:
+    build: .
+    container_name: stock-intel
+    image: stock-intel:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      # Loopback by default. Put a reverse proxy with auth in front before going wider.
+      - "${HOST_BIND_IP:-127.0.0.1}:8095:8095"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8095/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

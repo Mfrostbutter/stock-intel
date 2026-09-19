@@ -1,0 +1,33 @@
+{
+  "gutter": 16,
+  "panels": [
+    {
+      "title": "Stock Intel: Entry Signals",
+      "color": 6,
+      "width": 640,
+      "body": "Re-runs the analyst entry pass a few times a day so entry-watch signals stay current between daily briefs. Framework, not advice; nothing here places orders.\n\n**Runs** 10:00, 12:00, 14:00 and 15:45 on weekdays, and only when the market is actually open.\n**Calls** the app at intel.config.app_base_url with header auth. The app does the work; this workflow is the clock."
+    }
+  ],
+  "zones": [
+    {
+      "title": "Trigger + market-open gate",
+      "color": 4,
+      "nodes": [
+        "Every ~2h, market hours",
+        "Market clock",
+        "Open gate"
+      ],
+      "body": "Cron fires four times a weekday. Alpaca /v2/clock is the source of truth for the session, so holidays and early closes skip themselves: when is_open is false the gate emits nothing and the run ends quietly."
+    },
+    {
+      "title": "Run the entry pass",
+      "color": 5,
+      "nodes": [
+        "App URL",
+        "Run entry pass",
+        "Summary"
+      ],
+      "body": "App URL reads intel.config.app_base_url, so the callback host is configuration rather than a hardcoded name. POST /api/entries/signal then re-scores every live entry-watch ticker against today's prices and queues an analyst pass for the ones that moved into or out of their zone. Summary normalises the answer: 202 with queued analysis ids, 429 when the analyst daily cap is spent, 404 when nothing is on watch. Never fails the run."
+    }
+  ]
+}

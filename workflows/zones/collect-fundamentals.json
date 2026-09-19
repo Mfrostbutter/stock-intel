@@ -1,0 +1,47 @@
+{
+  "gutter": 16,
+  "panels": [
+    {
+      "title": "Collect-Fundamentals: source + rules",
+      "color": 7,
+      "width": 960,
+      "body": "**Finnhub stock/metric?metric=all**, one call per non-ETF ticker, 1.1 s apart, about a minute. About 130 fields; the mapped ones land in intel.fundamentals columns, the whole payload stays in `raw`.\n**Units**: Finnhub gives market cap and volume in millions and growth, margins and ROE in percent. Stored as dollars, shares and fractions. fcf_yield = 1 / (EV / FCF).\n**Coverage** varies a lot on this watchlist: mature names return everything, pre-profit names have no P/E, EV/EBITDA or FCF multiple, a few return little beyond market cap and balance sheet. Missing is stored as NULL, never zero; the value score reads what exists and records its coverage.\nOne snapshot per ticker per session (as_of), upserted, so the history of multiples builds up daily."
+    }
+  ],
+  "zones": [
+    {
+      "title": "Input",
+      "color": 4,
+      "nodes": [
+        "When called"
+      ],
+      "body": "Called with {run_id, as_of, tickers[], benchmarks[]}."
+    },
+    {
+      "title": "Fan out + fetch",
+      "color": 3,
+      "nodes": [
+        "One item per ticker",
+        "Finnhub basic financials"
+      ],
+      "body": "One item per non-ETF ticker. neverError with the full response: a bad reply becomes a ledger row, not a crash."
+    },
+    {
+      "title": "Normalize + store",
+      "color": 5,
+      "nodes": [
+        "Flatten metrics",
+        "Upsert fundamentals"
+      ],
+      "body": "Unit conversion, then one transaction: upsert on (ticker, as_of) plus one intel.api_usage row per call."
+    },
+    {
+      "title": "Return",
+      "color": 5,
+      "nodes": [
+        "Return counts"
+      ],
+      "body": "Counts and failed tickers go back to Daily for the run status."
+    }
+  ]
+}

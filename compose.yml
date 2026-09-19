@@ -1,0 +1,98 @@
+name: stock-intel
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: postgres
+      STOCKS_PG_DB: ${STOCKS_PG_DB:-stocks}
+      STOCKS_PG_PASSWORD: ${STOCKS_PG_PASSWORD:-}
+      STOCKS_APP_PG_PASSWORD: ${STOCKS_APP_PG_PASSWORD:-}
+      STOCKS_ANALYST_PG_PASSWORD: ${STOCKS_ANALYST_PG_PASSWORD:-}
+      STOCKS_INTRADAY_SVC_PASSWORD: ${STOCKS_INTRADAY_SVC_PASSWORD:-}
+      STOCKS_INTRADAY_RO_PASSWORD: ${STOCKS_INTRADAY_RO_PASSWORD:-}
+      N8N_DB_NAME: ${N8N_DB_NAME:-n8n}
+      N8N_DB_USER: ${N8N_DB_USER:-n8n}
+      N8N_DB_PASSWORD: ${N8N_DB_PASSWORD:-}
+    volumes:
+      - pg:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    ports:
+      # Loopback only, so the scripts in scripts/ (migrations, seed, backtests) can reach it.
+      - "${HOST_BIND_IP:-127.0.0.1}:${STOCKS_PG_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  n8n:
+    image: n8nio/n8n:2.37.7
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: ${N8N_DB_NAME:-n8n}
+      DB_POSTGRESDB_USER: ${N8N_DB_USER:-n8n}
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD:-}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?run scripts/bootstrap.py, it generates this}
+      GENERIC_TIMEZONE: ${TZ:-America/New_York}
+      TZ: ${TZ:-America/New_York}
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+    ports:
+      - "${HOST_BIND_IP:-127.0.0.1}:${N8N_HOST_PORT:-5678}:5678"
+    volumes:
+      - n8n:/home/node/.n8n
+
+  app:
+    build: ./app
+    image: stock-intel-app:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      STOCKS_PG_HOST: postgres
+      STOCKS_PG_PORT: "5432"        # inside the network, whatever port the host publishes
+      N8N_BASE_URL: http://n8n:5678
+    ports:
+      - "${HOST_BIND_IP:-127.0.0.1}:${PORT:-8095}:8095"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8095/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  recorder:
+    profiles: ["intraday"]
+    build:
+      context: .
+      dockerfile: intraday/deploy/Dockerfile
+    image: stock-intel-recorder:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      STOCKS_PG_HOST: postgres
+      STOCKS_PG_PORT: "5432"
+    # One writer only. The DB lease in intraday.ingestion_jobs is the real guard.
+    deploy:
+      replicas: 1
+
+volumes:
+  pg:
+  n8n:

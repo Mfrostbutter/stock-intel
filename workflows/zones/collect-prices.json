@@ -1,0 +1,33 @@
+{
+  "gutter": 16,
+  "zones": [
+    {
+      "title": "Input",
+      "color": 4,
+      "nodes": [
+        "When called"
+      ],
+      "body": "Called by Daily and Backfill with {run_id, as_of, tickers[], start, end}."
+    },
+    {
+      "title": "Fetch: Alpaca daily bars",
+      "color": 3,
+      "nodes": [
+        "Alpaca daily bars"
+      ],
+      "body": "One request for every ticker (SIP feed, split-adjusted). The free plan refuses SIP data newer than 15 min, so an end date of today is capped at now minus 16 min. Follows next_page_token until the page is empty, 3 retries on failure. Credential: Stock Intel Alpaca (headers)."
+    },
+    {
+      "title": "Normalize + store",
+      "color": 5,
+      "nodes": [
+        "Flatten bars",
+        "Upsert prices_daily",
+        "Return counts",
+        "Log Alpaca error",
+        "Return error"
+      ],
+      "body": "Pages become one row per (ticker, date), upserted into intel.prices_daily in a single jsonb transaction, plus one intel.api_usage row.\nLower row: the error output logs status=error and returns ok=false so the caller keeps going."
+    }
+  ]
+}

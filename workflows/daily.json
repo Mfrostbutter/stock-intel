@@ -1,0 +1,1069 @@
+{
+  "id": "siDaily000000001",
+  "name": "stock-intel: Daily",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 1800
+  },
+  "nodes": [
+    {
+      "id": "d1a1b2c3-0001-4a00-8000-000000000001",
+      "name": "Weekdays 06:00 ET",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d1a1b2c3-0002-4a00-8000-000000000002",
+      "name": "Start run + watchlist",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        336,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH r AS (INSERT INTO intel.runs (run_id, kind, as_of) VALUES (gen_random_uuid(), 'daily', CURRENT_DATE) RETURNING run_id)\nSELECT r.run_id::text AS run_id,\n       (SELECT array_agg(ticker ORDER BY ticker) FROM intel.watchlist WHERE active) AS tickers,\n       (SELECT array_agg(ticker ORDER BY ticker) FROM intel.watchlist WHERE active AND 'benchmark' = ANY(tags)) AS benchmarks,\n       (SELECT array_agg(ticker ORDER BY ticker) FROM intel.watchlist WHERE active AND 'holding' = ANY(tags)) AS holdings,\n       (SELECT value FROM intel.config WHERE key = 'weights') AS weights,\n       COALESCE((SELECT value FROM intel.config WHERE key = 'notify_email'), 'true'::jsonb) AS notify_email,\n       COALESCE((SELECT value FROM intel.config WHERE key = 'app_base_url'), '\"http://app:8095\"'::jsonb) #>> '{}' AS app_base_url,\n       COALESCE((SELECT value FROM intel.config WHERE key = 'telegram'), '{\"chat_id\":\"\",\"send_document\":true}'::jsonb) AS telegram,\n       (SELECT COALESCE(jsonb_object_agg(p.ticker, jsonb_build_object('qty', p.qty, 'avg_cost', p.avg_cost)), '{}'::jsonb)\n          FROM intel.positions p) AS positions,\n       COALESCE((SELECT value FROM intel.config WHERE key = 'email_position_values'), 'false'::jsonb) AS email_position_values,\n       (SELECT count(*)::int FROM intel.api_usage WHERE source = 'alphavantage' AND status = 'ok' AND called_at::date = CURRENT_DATE) AS av_ok_today\nFROM r;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "d1a1b2c3-0003-4a00-8000-000000000003",
+      "name": "Build context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// as_of = last completed trading session (ET). A session counts once 18:00 ET has passed.\n// Sessions come from the Alpaca calendar; weekday math is the fallback when the call fails.\nconst j = $('Start run + watchlist').first().json;\nconst now = new Date();\nconst et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));\nconst iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;\nlet d = new Date(et);\nif (et.getHours() < 18 || d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);\nwhile (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);\nconst today = iso(et);\nconst sessions = $input.all().map(i => i.json).filter(c => c && !c.error && /^\\d{4}-\\d{2}-\\d{2}$/.test(String(c.date || ''))).map(c => c.date).sort();\nconst done = sessions.filter(s => s < today || (s === today && et.getHours() >= 18));\nconst calendar_ok = done.length > 0;\nconst as_of = calendar_ok ? done[done.length - 1] : iso(d);\nconst s = new Date(as_of + 'T12:00:00'); s.setDate(s.getDate() - 10);\nreturn [{ json: { run_id: j.run_id, as_of, calendar_ok, av_ok_today: Number(j.av_ok_today || 0), tickers: j.tickers, benchmarks: j.benchmarks || [], weights: j.weights, holdings: j.holdings || [], positions: j.positions || {}, email_position_values: j.email_position_values === true, av_budget: 22, start: iso(s), end: as_of, days_back: 5 } }];"
+      }
+    },
+    {
+      "id": "d1a1b2c3-0004-4a00-8000-000000000004",
+      "name": "Collect-Prices",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        636
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "siPrices00000001",
+          "__workflowName": "stock-intel: Collect-Prices"
+        },
+        "mode": "once",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "d1a1b2c3-0005-4a00-8000-000000000005",
+      "name": "Ctx 1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        636
+      ],
+      "parameters": {
+        "jsCode": "return $('Build context').all();"
+      }
+    },
+    {
+      "id": "d1a1b2c3-0006-4a00-8000-000000000006",
+      "name": "Compute-Indicators",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        672,
+        636
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "siIndicators0001",
+          "__workflowName": "stock-intel: Compute-Indicators"
+        },
+        "mode": "once",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "d1a1b2c3-0007-4a00-8000-000000000007",
+      "name": "Ctx 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        636
+      ],
+      "parameters": {
+        "jsCode": "return $('Build context').all();"
+      }
+    },
+    {
+      "id": "d1a1b2c3-0008-4a00-8000-000000000008",
+      "name": "Collect-News",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        636
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "siNews0000000001",
+          "__workflowName": "stock-intel: Collect-News"
+        },
+        "mode": "once",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "d1a1b2c3-0009-4a00-8000-000000000009",
+      "name": "Load snapshot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        0,
+        1452
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT w.ticker, w.tags, w.target_entry,\n       p.close, p.volume,\n       i.sma20, i.sma50, i.sma200, i.rsi14, i.atr14, i.vol_z20, i.hi52w, i.pct_from_hi52w, i.ret_1d, i.ret_5d, i.ret_20d,\n       s.news_score, s.news_count,\n       (SELECT round(avg(sentiment)::numeric, 3) FROM intel.news_articles n WHERE n.ticker = w.ticker AND n.sentiment IS NOT NULL AND n.published_at >= ($1::date - 37) AND n.published_at < ($1::date - 7)) AS sent_30d,\n       (SELECT max(high) FROM intel.prices_daily q WHERE q.ticker = w.ticker AND q.as_of < $1::date AND q.as_of >= ($1::date - 30)) AS hi20_prev,\n       (SELECT max(rsi14) FROM intel.indicators_daily r WHERE r.ticker = w.ticker AND r.as_of < $1::date AND r.as_of >= ($1::date - 30)) AS rsi20_prev_max,\n       (SELECT json_build_object('as_of', f.as_of, 'pe', f.pe, 'ps', f.ps, 'pb', f.pb, 'rev_growth', f.rev_growth_yoy, 'rev_growth_q', f.rev_growth_q_yoy, 'eps_growth', f.eps_growth_yoy, 'gm', f.gross_margin, 'om', f.op_margin, 'de', f.debt_equity, 'cr', f.current_ratio, 'mcap', f.market_cap) FROM intel.fundamentals f WHERE f.ticker = w.ticker AND f.as_of <= $1::date AND f.as_of >= ($1::date - 14) ORDER BY f.as_of DESC LIMIT 1) AS fund,\n       (SELECT count(*) FROM intel.news_articles n WHERE n.ticker = w.ticker AND n.published_at >= ($1::date - 37) AND n.published_at < ($1::date - 7)) AS cnt_30d,\n       (SELECT json_build_object('buy_value', coalesce(sum(value) FILTER (WHERE tx_type = 'P'), 0), 'sell_value', coalesce(sum(value) FILTER (WHERE tx_type = 'S'), 0), 'buys', count(*) FILTER (WHERE tx_type = 'P'), 'sells', count(*) FILTER (WHERE tx_type = 'S')) FROM intel.insider_tx x WHERE x.ticker = w.ticker AND NOT coalesce(x.derivative, false) AND coalesce(x.tx_date, x.filed_at) > ($1::date - 90) AND coalesce(x.tx_date, x.filed_at) <= $1::date) AS insiders,\n       (SELECT json_agg(json_build_object('m', a.as_of, 'sb', a.strong_buy, 'b', a.buy, 'h', a.hold, 's', a.sell, 'ss', a.strong_sell) ORDER BY a.as_of DESC) FROM (SELECT * FROM intel.analyst_recs a WHERE a.ticker = w.ticker AND a.as_of <= $1::date ORDER BY a.as_of DESC LIMIT 2) a) AS recs,\n       (SELECT json_build_object('date', e.report_date, 'hour', e.hour, 'eps_est', e.eps_est) FROM intel.earnings_calendar e WHERE e.ticker = w.ticker AND e.report_date > $1::date ORDER BY e.report_date LIMIT 1) AS next_earnings,\n       (SELECT json_build_object('date', e.report_date, 'surprise_pct', e.surprise_pct) FROM intel.earnings_calendar e WHERE e.ticker = w.ticker AND e.report_date <= $1::date AND e.eps_actual IS NOT NULL ORDER BY e.report_date DESC LIMIT 1) AS last_earnings,\n       (SELECT json_agg(json_build_object('h', headline, 's', sentiment, 'u', url, 'src', source) ORDER BY published_at DESC) FROM (SELECT headline, sentiment, url, source, published_at FROM intel.news_articles n WHERE n.ticker = w.ticker AND n.published_at >= ($1::date - 2) ORDER BY published_at DESC LIMIT 3) t) AS top_news\nFROM intel.watchlist w\nLEFT JOIN intel.prices_daily p ON p.ticker = w.ticker AND p.as_of = $1::date\nLEFT JOIN intel.indicators_daily i ON i.ticker = w.ticker AND i.as_of = $1::date\nLEFT JOIN intel.sentiment_daily s ON s.ticker = w.ticker AND s.as_of = $1::date\nWHERE w.active\nORDER BY w.ticker;",
+        "options": {
+          "queryReplacement": "={{ [$('Build context').first().json.as_of] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "d1a1b2c3-0010-4a00-8000-000000000010",
+      "name": "Score v2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        1452
+      ],
+      "parameters": {
+        "jsCode": "// Deterministic scoring. v2 = momentum + sentiment + growth-adjusted value + catalyst.\nconst SCORE_VERSION = 'v2';\nconst ctx = $('Build context').first().json;\nconst items = $input.all().map(i => i.json);\nconst isBench = (r) => (r.tags || []).includes('benchmark');\nconst bench = {}; for (const r of items) if (isBench(r)) bench[r.ticker] = r;\nconst num = (v) => (v == null || v === '' ? null : Number(v));\nconst clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));\nconst r2 = (v) => (v == null ? null : Math.round(v * 100) / 100);\nconst qqq20 = num(bench.QQQ && bench.QQQ.ret_20d) || 0;\nconst w = ctx.weights || { momentum: 0.3, value: 0.25, sentiment: 0.25, catalyst: 0.2 };\n// News rate per ticker (7-day articles per day over the 30-day baseline), then the watchlist median so surge is relative to the day, not to a still-filling baseline.\nconst rateOf = (r) => { const c = num(r.news_count) || 0, c30 = num(r.cnt_30d); return c30 == null || (c30 < 5 && c < 5) ? null : (c / 7) / Math.max(c30 / 30, 0.2); };\nconst rates = items.filter(r => !isBench(r)).map(rateOf).filter(v => v != null).sort((a, b) => a - b);\nconst medRate = rates.length ? rates[Math.floor(rates.length / 2)] : null;\nconst rows = [];\nfor (const r of items) {\n  if (isBench(r)) continue;\n  const close = num(r.close), sma20 = num(r.sma20), sma50 = num(r.sma50), sma200 = num(r.sma200), rsi = num(r.rsi14), volz = num(r.vol_z20);\n  const r1 = num(r.ret_1d), r5 = num(r.ret_5d), r20 = num(r.ret_20d), news = num(r.news_score), base = num(r.sent_30d), cnt = num(r.news_count) || 0, hi20 = num(r.hi20_prev), fromHi = num(r.pct_from_hi52w), rsiPrevMax = num(r.rsi20_prev_max);\n  const reasons = {};\n  let m = null;\n  if (close != null) {\n    m = 50;\n    if (sma200 != null) m += close > sma200 ? 10 : -10;\n    if (sma50 != null) m += close > sma50 ? 8 : -8;\n    if (sma50 != null && sma200 != null) m += sma50 > sma200 ? 7 : -7;\n    if (rsi != null) m += clamp((rsi - 50) / 2, -15, 15);\n    if (r20 != null) m += clamp((r20 - qqq20) * 100, -15, 15);\n    if (volz != null && r1 != null) m += clamp(volz * Math.sign(r1) * 3, -5, 5);\n    m = clamp(m);\n    reasons.momentum = { vs_sma200: sma200 ? r2((close / sma200 - 1) * 100) : null, vs_sma50: sma50 ? r2((close / sma50 - 1) * 100) : null, rsi: r2(rsi), ret_20d_vs_qqq: r20 != null ? r2((r20 - qqq20) * 100) : null, vol_z: r2(volz), rsi_prev_max: r2(rsiPrevMax) };\n  }\n  let s = null, delta = null;\n  if (news != null) {\n    const conf = Math.min(1, cnt / 10);\n    s = 50 + (clamp(50 + news * 100) - 50) * conf;\n    if (base != null) { delta = news - base; s = clamp(s + clamp(delta * 50, -10, 10)); }\n    s = clamp(s);\n  }\n  reasons.sentiment = { news_7d: news, base_30d: base, delta: delta == null ? null : Math.round(delta * 1000) / 1000, articles: cnt };\n  // Value v1: price against growth, quality, balance sheet. Only inputs that exist count; coverage says how many did.\n  const f = r.fund || {};\n  const fn = (k) => num(f[k]);\n  const growth = fn('rev_growth') != null ? fn('rev_growth') : fn('rev_growth_q');\n  const vparts = {};\n  if (growth != null) vparts.growth = clamp((growth * 100 - 10) / 4, -15, 15);\n  if (fn('pe') != null && fn('pe') > 0) { const g = clamp(Math.max(fn('eps_growth') ?? 0, growth ?? 0, 0.05) * 100, 5, 100); vparts.price = clamp((1 - fn('pe') / g) * 15, -15, 15); }\n  else if (fn('ps') != null && fn('ps') > 0 && growth != null) { const ratio = fn('ps') / (clamp(growth * 100, 5, 150) / 10); vparts.price = clamp((5 - ratio) * 2, -15, 15); }\n  if (fn('gm') != null) vparts.gross_margin = clamp((fn('gm') * 100 - 40) / 4, -10, 10);\n  if (fn('om') != null) vparts.op_margin = clamp(fn('om') * 100 / 5, -10, 10);\n  if (fn('de') != null) vparts.debt = clamp((0.5 - fn('de')) * 10, -8, 8);\n  if (fn('cr') != null) vparts.liquidity = clamp((fn('cr') - 1.5) * 4, -6, 6);\n  const vkeys = Object.keys(vparts);\n  const vcov = vkeys.length / 6;\n  let v = null;\n  if (vcov >= 0.5) v = clamp(50 + vkeys.reduce((a, k) => a + vparts[k], 0));\n  reasons.value = { pe: fn('pe'), ps: fn('ps'), rev_growth: growth == null ? null : r2(growth * 100), eps_growth: fn('eps_growth') == null ? null : r2(fn('eps_growth') * 100), gross_margin: fn('gm') == null ? null : r2(fn('gm') * 100), op_margin: fn('om') == null ? null : r2(fn('om') * 100), debt_equity: fn('de'), current_ratio: fn('cr'), as_of: f.as_of || null, coverage: r2(vcov), parts: Object.fromEntries(vkeys.map(k => [k, r2(vparts[k])])) };\n  // Catalyst v1: scheduled events, last surprise, news surge, open-market insider flow, analyst stance. Signed parts, coverage counts inputs present.\n  const ne = r.next_earnings && r.next_earnings.date ? r.next_earnings : null;\n  const earnDays = ne ? Math.round((new Date(ne.date + 'T00:00:00Z') - new Date(ctx.as_of + 'T00:00:00Z')) / 86400000) : null;\n  const le = r.last_earnings && r.last_earnings.date ? r.last_earnings : null;\n  const sinceEarn = le ? Math.round((new Date(ctx.as_of + 'T00:00:00Z') - new Date(le.date + 'T00:00:00Z')) / 86400000) : null;\n  const cparts = {}, cin = {};\n  if (earnDays != null) { cparts.earnings_ahead = earnDays <= 14 ? 8 : (earnDays <= 30 ? 4 : 0); cin.earnings_in_days = earnDays; }\n  if (le && sinceEarn != null && sinceEarn <= 45 && num(le.surprise_pct) != null) { cparts.surprise = clamp(num(le.surprise_pct) / 2, -10, 10); cin.surprise_pct = num(le.surprise_pct); cin.surprise_days_ago = sinceEarn; }\n  const rate = rateOf(r);\n  if (rate != null && medRate) { const rel = rate / medRate; cin.news_rate = r2(rate); cin.news_rate_rel = r2(rel); cparts.news_surge = volz != null && volz > 1 ? clamp((rel - 1) * 8, -4, 12) : clamp((rel - 1) * 4, -4, 4); }\n  const ins = r.insiders || null;\n  if (ins && (num(ins.buys) || num(ins.sells))) { const bv = num(ins.buy_value) || 0, sv = num(ins.sell_value) || 0; const net = bv - sv; cin.insider_net_usd = Math.round(net); cin.insider_buys = num(ins.buys); cin.insider_sells = num(ins.sells); cparts.insiders = net >= 0 ? clamp(Math.log10(1 + net / 1e5) * 4, 0, 12) : clamp(-Math.log10(1 + -net / 1e6) * 3, -8, 0); }\n  const recs = Array.isArray(r.recs) ? r.recs : [];\n  const buyPct = (x) => { const tot = (num(x.sb) || 0) + (num(x.b) || 0) + (num(x.h) || 0) + (num(x.s) || 0) + (num(x.ss) || 0); return tot >= 3 ? ((num(x.sb) || 0) + (num(x.b) || 0)) / tot : null; };\n  if (recs.length && buyPct(recs[0]) != null) { const bp = buyPct(recs[0]); cin.analyst_buy_pct = r2(bp * 100); cparts.analysts = clamp((bp * 100 - 50) / 5, -6, 6); if (recs[1] && buyPct(recs[1]) != null) { const d = bp - buyPct(recs[1]); cin.analyst_buy_pct_delta = r2(d * 100); cparts.analyst_shift = clamp(d * 40, -6, 6); } }\n  const ckeys = Object.keys(cparts);\n  const ccov = ckeys.length / 6;\n  let c = null;\n  if (ccov >= 0.5) c = clamp(50 + ckeys.reduce((a, k) => a + cparts[k], 0));\n  reasons.catalyst = { ...cin, coverage: r2(ccov), parts: Object.fromEntries(ckeys.map(k => [k, r2(cparts[k])])) };\n  const coverage = { momentum: m != null, sentiment: s != null, value: v != null, value_inputs: r2(vcov), catalyst: c != null, catalyst_inputs: r2(ccov) };\n  const parts = [[m, w.momentum], [s, w.sentiment], [v, w.value], [c, w.catalyst]].filter(p => p[0] != null);\n  const wsum = parts.reduce((a, p) => a + p[1], 0);\n  const composite = wsum ? parts.reduce((a, p) => a + p[0] * p[1], 0) / wsum : null;\n  const flags = [], risks = [];\n  if (close != null && sma200 && sma20 && rsi != null && close > sma200 && close < sma20 && rsi >= 35 && rsi <= 45 && (news == null || news >= -0.1)) flags.push('pullback-in-uptrend');\n  if (rsi != null && rsi < 30 && volz != null && volz > 1.5) flags.push('oversold-bounce');\n  const bo = hi20 && close != null && close > hi20 && volz != null && volz > 2 && (delta == null || delta >= 0); const rsiDiv = rsi != null && rsiPrevMax != null && rsi < rsiPrevMax; if (bo && !rsiDiv) flags.push('breakout'); else if (bo && rsiDiv) risks.push('breakout-exhaustion');\n  if (r.target_entry != null && close != null && Math.abs(close / Number(r.target_entry) - 1) <= 0.03) flags.push('near-target');\n  if (delta != null && delta < -0.3) risks.push('sentiment-collapse');\n  if (fromHi != null && fromHi < -0.5) risks.push('down-50pct-from-52w-high');\n  // Earnings inside the next 7 calendar days (about 5 sessions) is a risk for any new entry.\n  if (earnDays != null && earnDays <= 7) risks.push('earnings-soon');\n  reasons.earnings = { next: ne ? ne.date : null, hour: ne ? (ne.hour || null) : null, days: earnDays, last_surprise_pct: r.last_earnings ? r.last_earnings.surprise_pct : null };\n  if (r1 != null && Math.abs(r1) >= 0.1) risks.push(r1 > 0 ? 'gap-up-10pct' : 'gap-down-10pct');\n  rows.push({ ticker: r.ticker, tags: r.tags || [], as_of: ctx.as_of, momentum: r2(m), value: r2(v), sentiment: r2(s), catalyst: r2(c), composite: r2(composite), flags, risks, reasons, score_version: SCORE_VERSION, coverage, close, r1, r5, r20, rsi: r2(rsi), volz: r2(volz), cnt, news, top_news: r.top_news || [], earn: reasons.earnings, missing_price: close == null });\n}\nrows.sort((a, b) => (b.composite ?? -1) - (a.composite ?? -1));\nreturn [{ json: { run_id: ctx.run_id, as_of: ctx.as_of, rows, bench, count: rows.length } }];"
+      }
+    },
+    {
+      "id": "d1a1b2c3-0011-4a00-8000-000000000011",
+      "name": "Upsert scores_daily",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        672,
+        1452
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intel.scores_daily (ticker, as_of, momentum, value, sentiment, catalyst, composite, flags, risks, reasons, score_version, coverage)\nSELECT ticker, as_of::date, momentum, value, sentiment, catalyst, composite, coalesce(flags, '{}'), coalesce(risks, '{}'), reasons, score_version, coverage\nFROM jsonb_to_recordset($1::jsonb) AS x(ticker text, as_of text, momentum numeric, value numeric, sentiment numeric, catalyst numeric, composite numeric, flags text[], risks text[], reasons jsonb, score_version text, coverage jsonb)\nON CONFLICT (ticker, as_of) DO UPDATE SET momentum = EXCLUDED.momentum, value = EXCLUDED.value, sentiment = EXCLUDED.sentiment, catalyst = EXCLUDED.catalyst, composite = EXCLUDED.composite, flags = EXCLUDED.flags, risks = EXCLUDED.risks, reasons = EXCLUDED.reasons, score_version = EXCLUDED.score_version, coverage = EXCLUDED.coverage;",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.rows)] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "d1a1b2c3-0012-4a00-8000-000000000012",
+      "name": "Build brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        1452
+      ],
+      "parameters": {
+        "jsCode": "const S = $('Score v2').first().json;\nconst ctx = $('Build context').first().json;\nconst sub = (name) => { try { return $(name).first().json; } catch (e) { return {}; } };\nconst prices = sub('Collect-Prices'), ind = sub('Compute-Indicators'), news = sub('Collect-News'), earn = sub('Collect-Earnings'), fund = sub('Collect-Fundamentals'), sig = sub('Collect-Signals');\nconst pct = (v) => (v == null ? '' : (v * 100 >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%');\nconst n1 = (v) => (v == null ? '' : Number(v).toFixed(1));\nconst n2 = (v) => (v == null ? '' : Number(v).toFixed(2));\nconst esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));\nconst rows = S.rows, B = S.bench || {};\nconst holdings = rows.filter(r => r.tags.includes('holding'));\nconst setups = rows.filter(r => r.flags.length).slice(0, 5);\nconst risky = rows.filter(r => r.risks.length);\nconst missing = rows.filter(r => r.missing_price).map(r => r.ticker);\n// Run status from what the collectors really returned.\nconst issues = [];\nif (ctx.calendar_ok === false) issues.push('calendar unavailable, weekday fallback');\nif (prices.ok !== true) issues.push('prices failed' + (prices.error ? ': ' + String(prices.error).slice(0, 120) : ''));\nif (ind.ok !== true) issues.push('indicators failed');\nif (news.ok !== true) issues.push('news failed');\nelse if (news.finnhub_failed) issues.push(`finnhub failed for ${news.finnhub_failed}: ${(news.finnhub_failed_tickers || []).slice(0, 8).join(' ')}`);\nif (earn.ok !== true) issues.push('earnings failed');\nelse if (earn.failed) issues.push(`earnings failed for ${earn.failed}: ${(earn.failed_tickers || []).slice(0, 8).join(' ')}`);\nif (fund.ok !== true) issues.push('fundamentals failed');\nelse if (fund.failed) issues.push(`fundamentals failed for ${fund.failed}: ${(fund.failed_tickers || []).slice(0, 8).join(' ')}`);\nif (sig.ok !== true) issues.push('signals failed');\nelse if (sig.failed) issues.push(`signals failed for ${sig.failed} calls: ${(sig.failed_tickers || []).slice(0, 8).join(' ')}`);\nif (news.av_errors) issues.push(`alphavantage errors: ${news.av_errors}`);\nif (news.av_calls && news.av_throttled === news.av_calls && !ctx.av_ok_today) issues.push('alphavantage fully throttled, no sentiment today');\nif (missing.length) issues.push(`no price for ${missing.length}: ${missing.slice(0, 8).join(' ')}`);\nif (sub('Upsert scores_daily').error) issues.push('scores not stored');\nconst priced = rows.length - missing.length;\nconst status = priced === 0 ? 'failed' : (issues.length ? 'degraded' : 'ok');\n\nlet md = `# Stock Intel brief, ${S.as_of}\\n\\n`;\nmd += `## Market context\\n\\n| Index | 1d | 5d | 20d | RSI |\\n|---|---|---|---|---|\\n`;\nfor (const t of ['SPY', 'QQQ', 'SOXX', 'ARKX', 'UFO']) { const b = B[t]; if (b) md += `| ${t} | ${pct(b.ret_1d)} | ${pct(b.ret_5d)} | ${pct(b.ret_20d)} | ${n1(b.rsi14)} |\\n`; }\nconst line = (r) => `| ${r.ticker} | ${n2(r.close)} | ${pct(r.r1)} | ${pct(r.r5)} | ${pct(r.r20)} | ${n1(r.rsi)} | ${n1(r.volz)} | ${r.news == null ? '' : n2(r.news)} (${r.cnt}) | ${r.momentum == null ? '' : n1(r.momentum)} | ${r.value == null ? '' : n1(r.value)} | ${r.catalyst == null ? '' : n1(r.catalyst)} | ${n1(r.composite)} | ${r.flags.join(', ')} |`;\nconst hdr = `| Ticker | Close | 1d | 5d | 20d | RSI | Vol z | Sent 7d (n) | Mom | Value | Cat | Score | Flags |\\n|---|---|---|---|---|---|---|---|---|---|---|---|---|`;\n// Share counts and dollar values only reach the email when email_position_values is on.\nconst pos = ctx.positions || {}, showVals = ctx.email_position_values === true;\nconst hHdr = showVals\n  ? `| Ticker | Shares | Avg cost | Close | Value | Gain | 1d | 5d | 20d | RSI | Score | Flags |\\n|---|---|---|---|---|---|---|---|---|---|---|---|`\n  : hdr;\nconst hLine = (r) => {\n  if (!showVals) return line(r);\n  const p = pos[r.ticker] || {};\n  const qty = p.qty == null ? null : Number(p.qty);\n  const cost = p.avg_cost == null ? null : Number(p.avg_cost);\n  const val = (qty == null || r.close == null) ? null : qty * r.close;\n  const gain = (qty == null || cost == null || r.close == null) ? null : qty * (r.close - cost);\n  return `| ${r.ticker} | ${qty == null ? '' : qty.toFixed(3)} | ${n2(cost)} | ${n2(r.close)} | ${n2(val)} | ${n2(gain)} | ${pct(r.r1)} | ${pct(r.r5)} | ${pct(r.r20)} | ${n1(r.rsi)} | ${n1(r.composite)} | ${r.flags.join(', ')} |`;\n};\nmd += `\\n## Holdings\\n\\n${hHdr}\\n${holdings.map(hLine).join('\\n')}\\n`;\n// Next 14 days of reports; holdings first. Unknown dates are said out loud.\nconst hourTxt = { bmo: 'before open', amc: 'after close', dmh: 'during hours' };\nconst upcoming = rows.filter(r => r.earn && r.earn.days != null && r.earn.days <= 14).sort((x, y) => x.earn.days - y.earn.days);\nconst noDate = holdings.filter(r => !r.earn || !r.earn.next).map(r => r.ticker);\nmd += `\\n## Earnings, next 14 days\\n\\n`;\nmd += upcoming.length ? `| Ticker | Date | When | In | Last surprise | Held |\\n|---|---|---|---|---|---|\\n` + upcoming.map(r => `| ${r.ticker} | ${r.earn.next} | ${hourTxt[r.earn.hour] || ''} | ${r.earn.days}d | ${r.earn.last_surprise_pct == null ? '' : n1(r.earn.last_surprise_pct) + '%'} | ${r.tags.includes('holding') ? 'yes' : ''} |`).join('\\n') + `\\n` : `None scheduled.\\n`;\nif (noDate.length) md += `\\nNo earnings date known for holdings: ${noDate.join(', ')}.\\n`;\nmd += `\\n## Entry setups\\n\\n`;\nif (!setups.length) md += `None today.\\n`;\nfor (const r of setups) {\n  const m = r.reasons.momentum || {}, s = r.reasons.sentiment || {};\n  md += `**${r.ticker}** ${r.flags.join(', ')} (score ${n1(r.composite)}). Close ${n2(r.close)}, ${m.vs_sma200 != null ? m.vs_sma200 + '% vs SMA200, ' : ''}RSI ${n1(r.rsi)}, vol z ${n1(r.volz)}, sentiment ${s.news_7d == null ? 'n/a' : n2(s.news_7d) + ' on ' + s.articles + ' articles'}${s.delta != null ? ' (delta ' + s.delta + ')' : ''}.\\n`;\n  for (const a of (r.top_news || []).slice(0, 2)) md += `  - ${a.h}${a.s != null ? ' [' + n2(a.s) + ']' : ''}\\n`;\n  md += `\\n`;\n}\nmd += `\\n## Watchlist\\n\\n${hdr}\\n${rows.filter(r => !r.tags.includes('holding')).map(line).join('\\n')}\\n`;\nmd += `\\n## Risk flags\\n\\n${risky.length ? risky.map(r => `- ${r.ticker}: ${r.risks.join(', ')}`).join('\\n') : 'None.'}\\n`;\nmd += `\\n---\\nrun ${S.run_id}. prices ${prices.rows ?? '?'} rows / ${prices.symbols ?? '?'} symbols; indicators ${ind.rows ?? '?'}; news finnhub ${news.finnhub_rows ?? '?'}, alphavantage ${news.av_rows ?? '?'} (${news.av_throttled ?? 0} throttled); earnings ${earn.rows ?? '?'} rows; fundamentals ${fund.rows ?? '?'} rows; insiders ${sig.insider_rows ?? '?'}, recs ${sig.rec_rows ?? '?'}.${missing.length ? ' No price for: ' + missing.join(', ') + '.' : ''}${status === 'ok' ? '' : '\\nRun status: ' + status + '. ' + issues.join('; ') + '.'}\\nFramework, not advice. Scores v2 = momentum + sentiment + growth-adjusted value + catalyst (each only where at least half its inputs exist; value ${rows.filter(r => r.value != null).length}, catalyst ${rows.filter(r => r.catalyst != null).length} of ${rows.length} today).\\n`;\n\n// minimal HTML rendering of the markdown tables/headings\nconst html = md.split('\\n').map((l) => {\n  if (l.startsWith('# ')) return `<h2>${esc(l.slice(2))}</h2>`;\n  if (l.startsWith('## ')) return `<h3>${esc(l.slice(3))}</h3>`;\n  if (/^\\|---/.test(l)) return '';\n  if (l.startsWith('|')) { const cells = l.slice(1, -1).split('|').map(c => c.trim()); const tag = /^\\| Ticker|^\\| Index/.test(l) ? 'th' : 'td'; return `<tr>${cells.map(c => `<${tag} style=\"padding:2px 8px;border-bottom:1px solid #ddd;text-align:right;font-family:monospace;font-size:12px\">${esc(c)}</${tag}>`).join('')}</tr>`; }\n  if (l.startsWith('- ') || l.startsWith('  - ')) return `<div style=\"margin-left:16px\">&bull; ${esc(l.replace(/^\\s*- /, ''))}</div>`;\n  if (l === '---') return '<hr>';\n  if (l.startsWith('**')) return `<p>${esc(l).replace(/\\*\\*(.+?)\\*\\*/, '<b>$1</b>')}</p>`;\n  return l ? `<p>${esc(l)}</p>` : '';\n}).join('\\n').replace(/(<tr>[\\s\\S]*?<\\/tr>\\n?)+/g, (t) => `<table style=\"border-collapse:collapse\">${t}</table>`);\n// Telegram message: the headline facts only. Telegram caps a message at 4096 chars,\n// and the full brief rides along as a .md attachment when send_document is on.\nconst tgMovers = [...rows].filter(r => r.ret_1d != null).sort((a, b) => Math.abs(b.ret_1d) - Math.abs(a.ret_1d)).slice(0, 5);\nconst tgLines = [\n  `Stock Intel ${S.as_of}`,\n  `${setups.length} setup${setups.length === 1 ? '' : 's'}, ${risky.length} risk flag${risky.length === 1 ? '' : 's'}, run ${status}`,\n  '',\n  'Movers: ' + (tgMovers.map(r => `${r.ticker} ${(r.ret_1d * 100).toFixed(1)}%`).join(', ') || 'none priced'),\n  'Setups: ' + (setups.map(r => `${r.ticker} (${(r.flags || []).join('/')})`).join(', ') || 'none'),\n  'Risks: ' + (risky.map(r => `${r.ticker} (${(r.risks || []).join('/')})`).join(', ') || 'none'),\n];\nif (issues.length) tgLines.push('', 'Issues: ' + issues.join('; '));\nconst telegram_text = tgLines.join('\n').slice(0, 3900);\n\nconst subject = `Stock Intel ${S.as_of}: ${setups.length} setup${setups.length === 1 ? '' : 's'}, ${risky.length} risk flag${risky.length === 1 ? '' : 's'}`;\nreturn [{ json: { run_id: S.run_id, as_of: S.as_of, subject, telegram_text, markdown: md, html: `<div style=\"font-family:system-ui,sans-serif;font-size:14px\">${html}</div>`, status, summary: { status, issues, setups: setups.map(r => r.ticker), risks: risky.map(r => r.ticker), missing, prices, ind, news, earn, earnings_soon: upcoming.filter(r => r.earn.days <= 7).map(r => r.ticker) } } }];"
+      }
+    },
+    {
+      "id": "d1a1b2c3-0014-4a00-8000-000000000014",
+      "name": "Store report + finish run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        336,
+        1924
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intel.reports (as_of, run_id, markdown, html, sent_to, sent_at)\nVALUES ($2::date, $1::uuid, $3, $4,\n        CASE WHEN $6::boolean THEN ARRAY['telegram'] ELSE ARRAY[]::text[] END,\n        CASE WHEN $6::boolean THEN now() ELSE NULL END)\nON CONFLICT (as_of) DO UPDATE SET run_id = EXCLUDED.run_id, markdown = EXCLUDED.markdown, html = EXCLUDED.html, sent_to = EXCLUDED.sent_to, sent_at = EXCLUDED.sent_at;\nUPDATE intel.runs SET finished_at = now(), status = $7, summary = $5::jsonb WHERE run_id = $1::uuid;",
+        "options": {
+          "queryReplacement": "={{ [$('Build brief').first().json.run_id, $('Build brief').first().json.as_of, $('Build brief').first().json.markdown, $('Build brief').first().json.html, JSON.stringify($('Build brief').first().json.summary), (() => { try { const t = $('Telegram brief'); return t.isExecuted && !t.first().json.error; } catch (_) { return false; } })(), $('Build brief').first().json.status] }}",
+          "queryBatching": "transaction"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stock-intel/run",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        260
+      ],
+      "id": "c6095e76-d9f8-4f75-8897-dde4b74f2351",
+      "name": "Run webhook",
+      "webhookId": "d8c0f8cb-2438-4c6d-90e3-73756d2afb81",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "siCredWebhook001",
+          "name": "Stock Intel App Webhook (header)"
+        }
+      }
+    },
+    {
+      "id": "8cb27a3b-1824-4933-bd11-dc660598d72f",
+      "name": "Analyze brief",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        672,
+        1924
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Start run + watchlist').first().json.app_base_url }}/api/reports/{{ $('Build brief').first().json.as_of }}/analyze",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ mode: 'daily' }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "siCredWebhook001",
+          "name": "Stock Intel App Webhook (header)"
+        }
+      }
+    },
+    {
+      "id": "d2a1c0de-0000-4000-8000-00000000ca1e",
+      "name": "Alpaca calendar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        672,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "parameters": {
+        "url": "https://paper-api.alpaca.markets/v2/calendar",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "start",
+              "value": "={{ new Date(Date.now() - 14 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) }}"
+            },
+            {
+              "name": "end",
+              "value": "={{ new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "siCredAlpaca0001",
+          "name": "Stock Intel Alpaca (headers)"
+        }
+      }
+    },
+    {
+      "id": "d2a1c0de-0000-4000-8000-0000000ea202",
+      "name": "Ctx 3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        636
+      ],
+      "parameters": {
+        "jsCode": "return $('Build context').all();"
+      }
+    },
+    {
+      "id": "d2a1c0de-0000-4000-8000-0000000ea201",
+      "name": "Collect-Earnings",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2016,
+        636
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "siEarnings000001",
+          "__workflowName": "stock-intel: Collect-Earnings"
+        },
+        "mode": "once",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "d2a1c0de-0000-4000-8000-0000000fa202",
+      "name": "Ctx 4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        636
+      ],
+      "parameters": {
+        "jsCode": "return $('Build context').all();"
+      }
+    },
+    {
+      "id": "d2a1c0de-0000-4000-8000-0000000fa201",
+      "name": "Collect-Fundamentals",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        896
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "siFundamentals01",
+          "__workflowName": "stock-intel: Collect-Fundamentals"
+        },
+        "mode": "once",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "d2a1c0de-0000-4000-8000-0000000fa302",
+      "name": "Ctx 5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        896
+      ],
+      "parameters": {
+        "jsCode": "return $('Build context').all();"
+      }
+    },
+    {
+      "id": "d2a1c0de-0000-4000-8000-0000000fa301",
+      "name": "Collect-Signals",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        672,
+        896
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "siSignals0000001",
+          "__workflowName": "stock-intel: Collect-Signals"
+        },
+        "mode": "once",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "d1a1b2c3-0015-4a00-8000-000000000015",
+      "name": "Telegram enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1264,
+        1452
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-telegram-chat",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              },
+              "leftValue": "={{ (($('Start run + watchlist').first().json.telegram || {}).chat_id || '') }}",
+              "rightValue": ""
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d1a1b2c3-0013-4a00-8000-000000000013",
+      "name": "Telegram brief",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1600,
+        1452
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "siCredTelegram01",
+          "name": "Stock Intel Telegram"
+        }
+      },
+      "parameters": {
+        "chatId": "={{ ($('Start run + watchlist').first().json.telegram || {}).chat_id }}",
+        "text": "={{ $('Build brief').first().json.telegram_text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      }
+    },
+    {
+      "id": "d1a1b2c3-0022-4a00-8000-000000000022",
+      "name": "Attach full brief?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1936,
+        1452
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-telegram-doc",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "leftValue": "={{ ($('Start run + watchlist').first().json.telegram || {}).send_document !== false }}",
+              "rightValue": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d1a1b2c3-0023-4a00-8000-000000000023",
+      "name": "Brief to file",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2272,
+        1452
+      ],
+      "parameters": {
+        "jsCode": "// The full brief as a .md attachment for the Telegram document send.\nconst b = $('Build brief').first().json;\nconst data = await this.helpers.prepareBinaryData(Buffer.from(b.markdown, 'utf8'), `stock-intel-${b.as_of}.md`, 'text/markdown');\nreturn [{ json: { as_of: b.as_of }, binary: { data } }];"
+      }
+    },
+    {
+      "id": "d1a1b2c3-0024-4a00-8000-000000000024",
+      "name": "Telegram document",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        1924
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "siCredTelegram01",
+          "name": "Stock Intel Telegram"
+        }
+      },
+      "parameters": {
+        "operation": "sendDocument",
+        "chatId": "={{ ($('Start run + watchlist').first().json.telegram || {}).chat_id }}",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Trigger + run context\n\nCron 0 6 * * 1-5, plus a POST webhook on stock-intel/run so the app's Run now button starts the same pipeline (header auth, responds immediately). One SQL opens a row in intel.runs and returns the active watchlist, benchmarks, holdings, weights and the delivery settings (app_base_url, telegram), so no node hardcodes a hostname or a chat. Alpaca calendar lists the last 14 days of sessions; Build context sets as_of to the last session whose 18:00 has passed, so a market holiday is never scored. If the calendar call fails it falls back to weekday math and the run is marked degraded.",
+        "width": 1248,
+        "height": 672,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Collect\n\nSix sub-workflows in sequence, each given the same context item: prices, indicators, news, earnings dates, fundamentals, signals (insiders + analyst recs). The Ctx nodes re-emit Build context because a sub-workflow returns its own counts, not the input.",
+        "width": 2592,
+        "height": 592,
+        "color": 5
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Score\n\nOne SQL joins watchlist, close, indicators, 7-day sentiment, a 30-day sentiment and article-count baseline, the prior 20-day high, top headlines, next and last earnings, the latest fundamentals snapshot, 90-day open-market insider flow and the last two months of analyst recs. Score v2 (JS) computes momentum, sentiment, growth-adjusted value and catalyst (earnings ahead, last surprise, news surge relative to the watchlist median that day, insider net flow, analyst buy share and its shift), each 0-100 and only where at least half its inputs exist; composite from the config weights renormalized over present components; entry flags (pullback-in-uptrend, oversold-bounce, breakout, near-target) and risk flags incl. earnings-soon at 7 days or less. Every row carries score_version and coverage. Stored in intel.scores_daily.",
+        "width": 912,
+        "height": 512,
+        "color": 5
+      },
+      "id": "zone-03",
+      "name": "zone-03",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Brief + Telegram\n\nMarkdown + HTML: market context, holdings, entry setups with evidence, watchlist table, risk flags, run footer. Build brief also sets the run status from what the collectors returned: ok, degraded (issues listed in runs.summary and the brief footer) or failed (nothing priced), and trims a short Telegram message (status, movers, setups, risks, issues) to fit the 4096-character cap. Telegram enabled? reads intel.config.telegram.chat_id: blank routes straight to the store and the brief stays in the app. Attach full brief? honours telegram.send_document; Brief to file turns the markdown into a .md attachment.",
+        "width": 1584,
+        "height": 512,
+        "color": 4
+      },
+      "id": "zone-04",
+      "name": "zone-04",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        864,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Store + analyze\n\nintel.reports gets the markdown and HTML copy and intel.runs is closed with a summary. reports.sent_to says 'telegram' only when the message node really ran without error, otherwise it stays empty. Analyze brief POSTs /api/reports/{as_of}/analyze to the app at intel.config.app_base_url (header auth); the analyst runs in the background and Today shows the result with citations. continueRegularOutput: an unreachable app never fails the run.",
+        "width": 912,
+        "height": 416,
+        "color": 4
+      },
+      "id": "zone-05",
+      "name": "zone-05",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        1712
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Stock Intel: Daily\n\nPersonal research pipeline for your own watchlist. Framework, not advice; nothing here places orders.\n\n**Runs** weekdays 06:00 in the instance timezone. as_of = last completed session, so Monday reports Friday.\n**Reads/writes** Postgres `stocks`, schema `intel`, role stocks_n8n.\n**Sub-workflows** Collect-Prices (Alpaca), Compute-Indicators (JS), Collect-News (Finnhub + Alpha Vantage), Collect-Earnings (Finnhub), Collect-Fundamentals (Finnhub), Collect-Signals (Finnhub insiders + recs). Each runs with continueRegularOutput: a dead source degrades the brief, never kills the run.\n**Credentials** created from .env by scripts/bootstrap.py, named `Stock Intel ...`.\n**Source** the stock-intel repo: sql/, workflows/, scripts/deploy_workflow.py. Edit the JSON in the repo and redeploy with the script, so the canvas and the file never drift.",
+        "width": 720,
+        "height": 464,
+        "color": 6
+      },
+      "id": "zone-panel-1",
+      "name": "zone-panel-1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -688
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Quotas + watchlist\n\nFree tiers per weekday: Finnhub ~250 of 86k, Alpha Vantage 22 of 25, Alpaca ~55 calls. Ledger: intel.api_usage, one row per call.\n\n**Watchlist** = intel.watchlist where active, seeded from watchlist.yaml and edited in the app. Tags are yours; two are special: `benchmark` (priced and scored for context, never flagged) and `holding` (derived from Positions).\n**Weights** intel.config key `weights`. Scores v2 use all four components.",
+        "width": 480,
+        "height": 464,
+        "color": 7
+      },
+      "id": "zone-panel-2",
+      "name": "zone-panel-2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        672,
+        -688
+      ]
+    }
+  ],
+  "connections": {
+    "Weekdays 06:00 ET": {
+      "main": [
+        [
+          {
+            "node": "Start run + watchlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start run + watchlist": {
+      "main": [
+        [
+          {
+            "node": "Alpaca calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build context": {
+      "main": [
+        [
+          {
+            "node": "Collect-Prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect-Prices": {
+      "main": [
+        [
+          {
+            "node": "Ctx 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ctx 1": {
+      "main": [
+        [
+          {
+            "node": "Compute-Indicators",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute-Indicators": {
+      "main": [
+        [
+          {
+            "node": "Ctx 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ctx 2": {
+      "main": [
+        [
+          {
+            "node": "Collect-News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect-News": {
+      "main": [
+        [
+          {
+            "node": "Ctx 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load snapshot": {
+      "main": [
+        [
+          {
+            "node": "Score v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert scores_daily": {
+      "main": [
+        [
+          {
+            "node": "Build brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build brief": {
+      "main": [
+        [
+          {
+            "node": "Telegram enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run webhook": {
+      "main": [
+        [
+          {
+            "node": "Start run + watchlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store report + finish run": {
+      "main": [
+        [
+          {
+            "node": "Analyze brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alpaca calendar": {
+      "main": [
+        [
+          {
+            "node": "Build context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ctx 3": {
+      "main": [
+        [
+          {
+            "node": "Collect-Earnings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect-Earnings": {
+      "main": [
+        [
+          {
+            "node": "Ctx 4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ctx 4": {
+      "main": [
+        [
+          {
+            "node": "Collect-Fundamentals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect-Fundamentals": {
+      "main": [
+        [
+          {
+            "node": "Ctx 5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ctx 5": {
+      "main": [
+        [
+          {
+            "node": "Collect-Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect-Signals": {
+      "main": [
+        [
+          {
+            "node": "Load snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score v2": {
+      "main": [
+        [
+          {
+            "node": "Upsert scores_daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram enabled?": {
+      "main": [
+        [
+          {
+            "node": "Telegram brief",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Store report + finish run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram brief": {
+      "main": [
+        [
+          {
+            "node": "Attach full brief?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach full brief?": {
+      "main": [
+        [
+          {
+            "node": "Brief to file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Store report + finish run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brief to file": {
+      "main": [
+        [
+          {
+            "node": "Telegram document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram document": {
+      "main": [
+        [
+          {
+            "node": "Store report + finish run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "tags": [
+    "stock-intel",
+    "daily"
+  ]
+}

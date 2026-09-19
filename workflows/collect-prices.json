@@ -1,0 +1,312 @@
+{
+  "id": "siPrices00000001",
+  "name": "stock-intel: Collect-Prices",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "6f1c2a8e-3b7d-4c5e-9a1f-2d3e4f5a6b7c",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+      "name": "Alpaca daily bars",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        320,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "url": "https://data.alpaca.markets/v2/stocks/bars",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbols",
+              "value": "={{ $json.tickers.join(',') }}"
+            },
+            {
+              "name": "timeframe",
+              "value": "1Day"
+            },
+            {
+              "name": "start",
+              "value": "={{ $json.start }}"
+            },
+            {
+              "name": "end",
+              "value": "={{ new Date($json.end + 'T23:59:59Z').getTime() > Date.now() - 16 * 60000 ? new Date(Date.now() - 16 * 60000).toISOString() : $json.end }}"
+            },
+            {
+              "name": "limit",
+              "value": "10000"
+            },
+            {
+              "name": "feed",
+              "value": "sip"
+            },
+            {
+              "name": "adjustment",
+              "value": "split"
+            },
+            {
+              "name": "sort",
+              "value": "asc"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page_token",
+                    "value": "={{ $response.body.next_page_token }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.next_page_token }}",
+              "limitPagesFetched": false,
+              "requestInterval": 250
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "siCredAlpaca0001",
+          "name": "Stock Intel Alpaca (headers)"
+        }
+      }
+    },
+    {
+      "id": "b3c4d5e6-f7a8-4b9c-8d1e-2f3a4b5c6d7e",
+      "name": "Flatten bars",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Pages from Alpaca -> flat rows for intel.prices_daily\nconst ctx = $('When called').first().json;\nconst rows = [];\nfor (const page of $input.all()) {\n  const bars = page.json.bars || {};\n  for (const [sym, arr] of Object.entries(bars)) {\n    for (const b of arr) {\n      rows.push({ ticker: sym, as_of: String(b.t).slice(0, 10), open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v });\n    }\n  }\n}\nreturn [{ json: { run_id: ctx.run_id, rows, count: rows.length, symbols: new Set(rows.map(r => r.ticker)).size } }];"
+      }
+    },
+    {
+      "id": "c4d5e6f7-a8b9-4c0d-9e2f-3a4b5c6d7e8f",
+      "name": "Upsert prices_daily",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        976,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intel.prices_daily (ticker, as_of, open, high, low, close, volume, source)\nSELECT ticker, as_of::date, open, high, low, close, volume, 'alpaca_sip'\nFROM jsonb_to_recordset($1::jsonb) AS x(ticker text, as_of text, open numeric, high numeric, low numeric, close numeric, volume bigint)\nON CONFLICT (ticker, as_of) DO UPDATE SET open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, volume = EXCLUDED.volume, source = EXCLUDED.source;\nINSERT INTO intel.api_usage (run_id, source, endpoint, status, http_code)\nVALUES ($2::uuid, 'alpaca', 'stocks/bars', 'ok', 200);",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.rows), $json.run_id] }}",
+          "queryBatching": "transaction"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "d5e6f7a8-b9c0-4d1e-8f3a-4b5c6d7e8f9a",
+      "name": "Return counts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const f = $('Flatten bars').first().json;\nreturn [{ json: { source: 'alpaca', rows: f.count, symbols: f.symbols, ok: true } }];"
+      }
+    },
+    {
+      "id": "e6f7a8b9-c0d1-4e2f-9a4b-5c6d7e8f9a0b",
+      "name": "Log Alpaca error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        976,
+        260
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intel.api_usage (run_id, source, endpoint, status, http_code)\nVALUES ($1::uuid, 'alpaca', 'stocks/bars', 'error', $2::int);",
+        "options": {
+          "queryReplacement": "={{ [$('When called').first().json.run_id, ($json.error && $json.error.httpCode) || 0] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "f7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c",
+      "name": "Return error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const e = $('Alpaca daily bars').first().json.error || {};\nreturn [{ json: { source: 'alpaca', rows: 0, symbols: 0, ok: false, error: String(e.message || e.description || 'unknown').slice(0, 300) } }];"
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Input\n\nCalled by Daily and Backfill with {run_id, as_of, tickers[], start, end}.",
+        "width": 304,
+        "height": 784,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Fetch: Alpaca daily bars\n\nOne request for every ticker (SIP feed, split-adjusted). The free plan refuses SIP data newer than 15 min, so an end date of today is capped at now minus 16 min. Follows next_page_token until the page is empty, 3 retries on failure. Credential: Stock Intel Alpaca (headers).",
+        "width": 304,
+        "height": 784,
+        "color": 3
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Normalize + store\n\nPages become one row per (ticker, date), upserted into intel.prices_daily in a single jsonb transaction, plus one intel.api_usage row.\nLower row: the error output logs status=error and returns ok=false so the caller keeps going.",
+        "width": 912,
+        "height": 784,
+        "color": 5
+      },
+      "id": "zone-03",
+      "name": "zone-03",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        576,
+        -320
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Alpaca daily bars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alpaca daily bars": {
+      "main": [
+        [
+          {
+            "node": "Flatten bars",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Alpaca error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten bars": {
+      "main": [
+        [
+          {
+            "node": "Upsert prices_daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert prices_daily": {
+      "main": [
+        [
+          {
+            "node": "Return counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Alpaca error": {
+      "main": [
+        [
+          {
+            "node": "Return error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "tags": [
+    "stock-intel",
+    "daily",
+    "subworkflow"
+  ]
+}

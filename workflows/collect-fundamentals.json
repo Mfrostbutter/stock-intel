@@ -1,0 +1,283 @@
+{
+  "id": "siFundamentals01",
+  "name": "stock-intel: Collect-Fundamentals",
+  "tags": [
+    "stock-intel",
+    "daily",
+    "subworkflow"
+  ],
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "f1000000-0000-4000-8000-000000000002",
+      "name": "One item per ticker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ETFs carry no company fundamentals.\nconst ctx = $input.first().json;\nreturn ctx.tickers.filter(t => !(ctx.benchmarks || []).includes(t)).map(t => ({ json: { ticker: t, run_id: ctx.run_id } }));"
+      }
+    },
+    {
+      "id": "f1000000-0000-4000-8000-000000000003",
+      "name": "Finnhub basic financials",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        656,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "url": "https://finnhub.io/api/v1/stock/metric",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $json.ticker }}"
+            },
+            {
+              "name": "metric",
+              "value": "all"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1100
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "siCredFinnhub001",
+          "name": "Stock Intel Finnhub (query token)"
+        }
+      }
+    },
+    {
+      "id": "f1000000-0000-4000-8000-000000000004",
+      "name": "Flatten metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// One full response per ticker. Percent fields become fractions; market cap arrives in millions.\nconst ctx = $('When called').first().json;\nconst reqs = $('One item per ticker').all();\nconst num = (v) => (v == null || v === '' || !isFinite(Number(v)) ? null : Number(v));\nconst frac = (v) => { const n = num(v); return n == null ? null : n / 100; };\nconst rows = [], usage = [];\n$input.all().forEach((it, i) => {\n  const pi = Array.isArray(it.pairedItem) ? it.pairedItem[0] : it.pairedItem;\n  const idx = (pi != null && typeof pi === 'object' ? pi.item : pi) ?? i;\n  const ticker = reqs[idx] ? reqs[idx].json.ticker : null;\n  const code = Number(it.json.statusCode) || null;\n  let body = it.json.body;\n  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }\n  const m = body && body.metric && typeof body.metric === 'object' ? body.metric : null;\n  const ok = code === 200 && !!m && !!ticker;\n  usage.push({ ticker, status: ok ? 'ok' : (code === 429 ? 'quota_skip' : 'error'), http_code: code });\n  if (!ok) return;\n  const evfcf = num(m['currentEv/freeCashFlowTTM']);\n  rows.push({\n    ticker, as_of: ctx.as_of,\n    market_cap: num(m.marketCapitalization) == null ? null : Math.round(num(m.marketCapitalization) * 1e6),\n    pe: num(m.peTTM), ps: num(m.psTTM), pb: num(m.pb), ev_ebitda: num(m.evEbitdaTTM),\n    fcf_yield: evfcf ? Math.round(1e4 / evfcf) / 1e4 : null,\n    rev_growth_yoy: frac(m.revenueGrowthTTMYoy), rev_growth_q_yoy: frac(m.revenueGrowthQuarterlyYoy), eps_growth_yoy: frac(m.epsGrowthTTMYoy),\n    gross_margin: frac(m.grossMarginTTM), op_margin: frac(m.operatingMarginTTM), net_margin: frac(m.netProfitMarginTTM), roe: frac(m.roeTTM),\n    debt_equity: num(m['totalDebt/totalEquityQuarterly']), current_ratio: num(m.currentRatioQuarterly), beta: num(m.beta),\n    avg_vol_10d: num(m['10DayAverageTradingVolume']) == null ? null : Math.round(num(m['10DayAverageTradingVolume']) * 1e6),\n    raw: m,\n  });\n});\nconst failed = usage.filter(u => u.status !== 'ok');\nreturn [{ json: { run_id: ctx.run_id, as_of: ctx.as_of, rows, count: rows.length, usage, calls: usage.length, failed: failed.length, failed_tickers: failed.map(u => u.ticker) } }];"
+      }
+    },
+    {
+      "id": "f1000000-0000-4000-8000-000000000005",
+      "name": "Upsert fundamentals",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1248,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intel.fundamentals (ticker, as_of, market_cap, pe, ps, pb, ev_ebitda, fcf_yield, rev_growth_yoy, rev_growth_q_yoy, eps_growth_yoy, gross_margin, op_margin, net_margin, roe, debt_equity, current_ratio, beta, avg_vol_10d, source, raw, updated_at)\nSELECT ticker, as_of, market_cap, pe, ps, pb, ev_ebitda, fcf_yield, rev_growth_yoy, rev_growth_q_yoy, eps_growth_yoy, gross_margin, op_margin, net_margin, roe, debt_equity, current_ratio, beta, avg_vol_10d, 'finnhub', raw, now()\nFROM jsonb_to_recordset($1::jsonb) AS x(ticker text, as_of date, market_cap numeric, pe numeric, ps numeric, pb numeric, ev_ebitda numeric, fcf_yield numeric, rev_growth_yoy numeric, rev_growth_q_yoy numeric, eps_growth_yoy numeric, gross_margin numeric, op_margin numeric, net_margin numeric, roe numeric, debt_equity numeric, current_ratio numeric, beta numeric, avg_vol_10d bigint, raw jsonb)\nON CONFLICT (ticker, as_of) DO UPDATE SET market_cap = EXCLUDED.market_cap, pe = EXCLUDED.pe, ps = EXCLUDED.ps, pb = EXCLUDED.pb, ev_ebitda = EXCLUDED.ev_ebitda, fcf_yield = EXCLUDED.fcf_yield, rev_growth_yoy = EXCLUDED.rev_growth_yoy, rev_growth_q_yoy = EXCLUDED.rev_growth_q_yoy, eps_growth_yoy = EXCLUDED.eps_growth_yoy, gross_margin = EXCLUDED.gross_margin, op_margin = EXCLUDED.op_margin, net_margin = EXCLUDED.net_margin, roe = EXCLUDED.roe, debt_equity = EXCLUDED.debt_equity, current_ratio = EXCLUDED.current_ratio, beta = EXCLUDED.beta, avg_vol_10d = EXCLUDED.avg_vol_10d, source = EXCLUDED.source, raw = EXCLUDED.raw, updated_at = now();\nINSERT INTO intel.api_usage (run_id, source, endpoint, ticker, status, http_code)\nSELECT $2::uuid, 'finnhub', 'stock/metric', ticker, status, http_code\nFROM jsonb_to_recordset($3::jsonb) AS u(ticker text, status text, http_code int);",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.rows), $json.run_id, JSON.stringify($json.usage)] }}",
+          "queryBatching": "transaction"
+        }
+      }
+    },
+    {
+      "id": "f1000000-0000-4000-8000-000000000006",
+      "name": "Return counts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const f = $('Flatten metrics').first().json;\nreturn [{ json: { source: 'fundamentals', rows: f.count, calls: f.calls, failed: f.failed, failed_tickers: f.failed_tickers, ok: f.calls > 0 && f.failed < f.calls } }];"
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Input\n\nCalled with {run_id, as_of, tickers[], benchmarks[]}.",
+        "width": 304,
+        "height": 384,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Fan out + fetch\n\nOne item per non-ETF ticker. neverError with the full response: a bad reply becomes a ledger row, not a crash.",
+        "width": 576,
+        "height": 384,
+        "color": 3
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Normalize + store\n\nUnit conversion, then one transaction: upsert on (ticker, as_of) plus one intel.api_usage row per call.",
+        "width": 576,
+        "height": 384,
+        "color": 5
+      },
+      "id": "zone-03",
+      "name": "zone-03",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        848,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Return\n\nCounts and failed tickers go back to Daily for the run status.",
+        "width": 304,
+        "height": 384,
+        "color": 5
+      },
+      "id": "zone-04",
+      "name": "zone-04",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Collect-Fundamentals: source + rules\n\n**Finnhub stock/metric?metric=all**, one call per non-ETF ticker, 1.1 s apart, about a minute. About 130 fields; the mapped ones land in intel.fundamentals columns, the whole payload stays in `raw`.\n**Units**: Finnhub gives market cap and volume in millions and growth, margins and ROE in percent. Stored as dollars, shares and fractions. fcf_yield = 1 / (EV / FCF).\n**Coverage** varies a lot on this watchlist: mature names return everything, pre-profit names have no P/E, EV/EBITDA or FCF multiple, a few return little beyond market cap and balance sheet. Missing is stored as NULL, never zero; the value score reads what exists and records its coverage.\nOne snapshot per ticker per session (as_of), upserted, so the history of multiples builds up daily.",
+        "width": 960,
+        "height": 336,
+        "color": 7
+      },
+      "id": "zone-panel-1",
+      "name": "zone-panel-1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -528
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "One item per ticker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per ticker": {
+      "main": [
+        [
+          {
+            "node": "Finnhub basic financials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finnhub basic financials": {
+      "main": [
+        [
+          {
+            "node": "Flatten metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten metrics": {
+      "main": [
+        [
+          {
+            "node": "Upsert fundamentals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert fundamentals": {
+      "main": [
+        [
+          {
+            "node": "Return counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

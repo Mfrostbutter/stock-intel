@@ -1,0 +1,95 @@
+# Stock Intel app on Kubernetes: FastAPI + SPA on 8095, bearer token on every /api route.
+# Compose is the reference deploy; this is here for people already running a cluster.
+# Postgres and n8n are assumed to exist already; point the env at them.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stock-intel
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stock-intel-config
+  namespace: stock-intel
+data:
+  STOCKS_PG_HOST: "postgres"
+  STOCKS_PG_PORT: "5432"
+  STOCKS_PG_DB: "stocks"
+  STOCKS_PG_USER: "stocks_app"
+  STOCKS_ANALYST_PG_USER: "stocks_analyst"
+  N8N_BASE_URL: "http://n8n:5678"
+  N8N_RUN_WEBHOOK_PATH: "stock-intel/run"
+  N8N_BACKFILL_WEBHOOK_PATH: "stock-intel/backfill"
+  STOCK_INTEL_QUOTE_FEED: "iex"
+  LLM_PROVIDER: "anthropic"
+  TZ: "America/New_York"
+---
+# Secret keys: STOCK_INTEL_APP_TOKEN, STOCK_INTEL_N8N_WEBHOOK_SECRET, STOCKS_APP_PG_PASSWORD,
+# STOCKS_ANALYST_PG_PASSWORD, FINNHUB_API_KEY, ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY and the
+# key for your LLM provider. Create it from values you hold locally; never commit them.
+#   kubectl -n stock-intel create secret generic stock-intel-secrets --from-env-file=.env
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stock-intel
+  namespace: stock-intel
+  labels:
+    app: stock-intel
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: stock-intel
+  template:
+    metadata:
+      labels:
+        app: stock-intel
+    spec:
+      containers:
+        - name: app
+          image: stock-intel-app:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8095
+          envFrom:
+            - configMapRef:
+                name: stock-intel-config
+            - secretRef:
+                name: stock-intel-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stock-intel
+  namespace: stock-intel
+spec:
+  selector:
+    app: stock-intel
+  ports:
+    - name: http
+      port: 8095
+      targetPort: 8095
+# No Ingress here on purpose. The app authenticates with a single bearer token and nothing else,
+# so put it behind something that authenticates properly before exposing it beyond the cluster.

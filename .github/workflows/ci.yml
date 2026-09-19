@@ -1,0 +1,137 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: headless tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: install
+        run: |
+          pip install -r app/requirements.txt -r scripts/requirements.txt
+          pip install pytest pytest-asyncio
+      - name: pytest
+        working-directory: app
+        run: python -m pytest tests -q
+      - name: scripts compile
+        run: python -m compileall -q scripts intraday
+
+  endpoints:
+    name: endpoint tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: stocks
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      STOCKS_PG_HOST: localhost
+      STOCKS_PG_PORT: "5432"
+      STOCKS_PG_DB: stocks
+      STOCKS_PG_USER: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test
+      STOCKS_APP_PG_PASSWORD: test
+      STOCK_INTEL_APP_TOKEN: ci-token-not-a-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: install
+        run: |
+          pip install -r app/requirements.txt -r scripts/requirements.txt
+          pip install pytest pytest-asyncio
+      - name: migrate
+        run: python scripts/migrate.py
+      - name: seed the two tickers the endpoint tests use
+        run: |
+          psql "postgresql://postgres:test@localhost:5432/stocks" -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO intel.watchlist (ticker, name) VALUES ('NVDA','NVIDIA'),('INTC','Intel') ON CONFLICT DO NOTHING;"
+      - name: start the app
+        working-directory: app
+        run: |
+          nohup python -m uvicorn stockintel.main:app --host 127.0.0.1 --port 18095 > app.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:18095/health > /dev/null && exit 0
+            sleep 2
+          done
+          echo "app did not come up"; cat app.log; exit 1
+      - name: pytest
+        working-directory: app
+        env:
+          STOCK_INTEL_TEST_URL: http://127.0.0.1:18095
+          STOCK_INTEL_TEST_TOKEN: ci-token-not-a-secret
+        run: python -m pytest tests -q
+      - name: app log on failure
+        if: failure()
+        run: cat app/app.log
+
+  canvas:
+    name: canvas gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: layout_check every workflow
+        run: |
+          fail=0
+          for f in workflows/*.json; do
+            python scripts/canvas/layout_check.py "$f" | tail -1 | sed "s|^|$(basename "$f"): |"
+            python scripts/canvas/layout_check.py "$f" > /dev/null || fail=1
+          done
+          exit $fail
+
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: no homelab or personal identifiers
+        run: |
+          if grep -rInE '10\.[0-9]+\.[0-9]+\.[0-9]+|svc\.cluster\.local' \
+               --exclude-dir=.git --exclude-dir=.github . ; then
+            echo "private network address found"; exit 1
+          fi
+
+  images:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: app image
+        run: docker build -t stock-intel-app:ci ./app
+      - name: recorder image
+        run: docker build -f intraday/deploy/Dockerfile -t stock-intel-recorder:ci .
+      - name: compose file parses
+        run: |
+          cp .env.example .env
+          sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci/; s/^N8N_ENCRYPTION_KEY=$/N8N_ENCRYPTION_KEY=ci/' .env
+          docker compose config --quiet
+          rm .env

@@ -1,0 +1,23 @@
+{
+  "gutter": 16,
+  "zones": [
+    {
+      "title": "Trigger",
+      "body": "Every 5 minutes. Scans the current session for bar gaps and repairs them from the same feed. Quiet with no manifest. Covers OPEN..CLOSE+30m.",
+      "color": 4,
+      "nodes": ["Every 5 minutes"]
+    },
+    {
+      "title": "Detect + plan",
+      "body": "Build the expected minute grid per session symbol and diff against bar_versions. A no-trade minute is not a transport gap, so nothing is fabricated. Plan emits one bounded window, or zero items when there is nothing to do.",
+      "color": 5,
+      "nodes": ["Find gaps", "Plan repair"]
+    },
+    {
+      "title": "Claim + fetch + append",
+      "body": "Lease-fenced so two runs cannot repair the same window. Fetch the gap window from Alpaca, insert only the missing bars (ON CONFLICT DO NOTHING); recovered bars keep their real available_at, never backdated. Close the job with the repaired count.",
+      "color": 3,
+      "nodes": ["Claim gap-repair lease", "Fetch Alpaca bars", "Flatten repaired bars", "Insert missing + close job", "Summary"]
+    }
+  ]
+}

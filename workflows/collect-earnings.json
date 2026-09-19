@@ -1,0 +1,287 @@
+{
+  "id": "siEarnings000001",
+  "name": "stock-intel: Collect-Earnings",
+  "tags": [
+    "stock-intel",
+    "daily",
+    "subworkflow"
+  ],
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "e1000000-0000-4000-8000-000000000001",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "e1000000-0000-4000-8000-000000000002",
+      "name": "One item per ticker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// 100 days back for the last actuals, 120 days forward for the next date. ETFs never report.\nconst ctx = $input.first().json;\nconst day = (n) => new Date(new Date(ctx.as_of + 'T00:00:00Z').getTime() + n * 86400000).toISOString().slice(0, 10);\nreturn ctx.tickers.filter(t => !(ctx.benchmarks || []).includes(t)).map(t => ({ json: { ticker: t, from: day(-100), to: day(120), run_id: ctx.run_id } }));"
+      }
+    },
+    {
+      "id": "e1000000-0000-4000-8000-000000000003",
+      "name": "Finnhub earnings calendar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        656,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "url": "https://finnhub.io/api/v1/calendar/earnings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $json.ticker }}"
+            },
+            {
+              "name": "from",
+              "value": "={{ $json.from }}"
+            },
+            {
+              "name": "to",
+              "value": "={{ $json.to }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1100
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "siCredFinnhub001",
+          "name": "Stock Intel Finnhub (query token)"
+        }
+      }
+    },
+    {
+      "id": "e1000000-0000-4000-8000-000000000004",
+      "name": "Flatten earnings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// One full response per ticker. rows -> earnings_calendar, usage -> one ledger row per call.\nconst ctx = $('When called').first().json;\nconst reqs = $('One item per ticker').all();\nconst num = (v) => (v == null || v === '' || !isFinite(Number(v)) ? null : Number(v));\nconst byKey = new Map(), usage = [], okTickers = [];\n$input.all().forEach((it, i) => {\n  const pi = Array.isArray(it.pairedItem) ? it.pairedItem[0] : it.pairedItem;\n  const idx = (pi != null && typeof pi === 'object' ? pi.item : pi) ?? i;\n  const ticker = reqs[idx] ? reqs[idx].json.ticker : null;\n  const code = Number(it.json.statusCode) || null;\n  let body = it.json.body;\n  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }\n  const list = body && Array.isArray(body.earningsCalendar) ? body.earningsCalendar : null;\n  const ok = code === 200 && !!list && !!ticker;\n  usage.push({ ticker, status: ok ? 'ok' : (code === 429 ? 'quota_skip' : 'error'), http_code: code });\n  if (!ok) return;\n  okTickers.push(ticker);\n  for (const e of list) {\n    if (!e || !/^\\d{4}-\\d{2}-\\d{2}$/.test(String(e.date || ''))) continue;\n    const est = num(e.epsEstimate), act = num(e.epsActual);\n    const surprise = est != null && act != null && est !== 0 ? Math.round(((act - est) / Math.abs(est)) * 100000) / 1000 : null;\n    byKey.set(ticker + '|' + e.date, { ticker, report_date: e.date, eps_est: est, eps_actual: act, rev_est: num(e.revenueEstimate), rev_actual: num(e.revenueActual), surprise_pct: surprise, hour: e.hour || null, fiscal_year: num(e.year), fiscal_quarter: num(e.quarter) });\n  }\n});\nconst rows = [...byKey.values()];\nconst failed = usage.filter(u => u.status !== 'ok');\nconst covered = new Set(rows.filter(r => r.report_date > ctx.as_of).map(r => r.ticker));\nconst no_date = okTickers.filter(t => !covered.has(t));\nreturn [{ json: { run_id: ctx.run_id, as_of: ctx.as_of, rows, count: rows.length, usage, ok_tickers: okTickers, calls: usage.length, failed: failed.length, failed_tickers: failed.map(u => u.ticker), no_date } }];"
+      }
+    },
+    {
+      "id": "e1000000-0000-4000-8000-000000000005",
+      "name": "Upsert earnings_calendar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1248,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- A moved date leaves a stale future row: clear unreported future rows for tickers that answered, then upsert.\nDELETE FROM intel.earnings_calendar e\nWHERE e.ticker = ANY($4::text[]) AND e.report_date > $5::date AND e.eps_actual IS NULL\n  AND NOT EXISTS (SELECT 1 FROM jsonb_to_recordset($1::jsonb) AS x(ticker text, report_date date) WHERE x.ticker = e.ticker AND x.report_date = e.report_date);\nINSERT INTO intel.earnings_calendar (ticker, report_date, eps_est, eps_actual, rev_est, rev_actual, surprise_pct, hour, fiscal_year, fiscal_quarter, source, updated_at)\nSELECT ticker, report_date, eps_est, eps_actual, rev_est, rev_actual, surprise_pct, hour, fiscal_year, fiscal_quarter, 'finnhub', now()\nFROM jsonb_to_recordset($1::jsonb) AS x(ticker text, report_date date, eps_est numeric, eps_actual numeric, rev_est numeric, rev_actual numeric, surprise_pct numeric, hour text, fiscal_year int, fiscal_quarter int)\nON CONFLICT (ticker, report_date) DO UPDATE SET eps_est = EXCLUDED.eps_est, eps_actual = EXCLUDED.eps_actual, rev_est = EXCLUDED.rev_est, rev_actual = EXCLUDED.rev_actual, surprise_pct = EXCLUDED.surprise_pct, hour = EXCLUDED.hour, fiscal_year = EXCLUDED.fiscal_year, fiscal_quarter = EXCLUDED.fiscal_quarter, source = EXCLUDED.source, updated_at = now();\nINSERT INTO intel.api_usage (run_id, source, endpoint, ticker, status, http_code)\nSELECT $2::uuid, 'finnhub', 'calendar/earnings', ticker, status, http_code\nFROM jsonb_to_recordset($3::jsonb) AS u(ticker text, status text, http_code int);",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.rows), $json.run_id, JSON.stringify($json.usage), '{' + $json.ok_tickers.join(',') + '}', $json.as_of] }}",
+          "queryBatching": "transaction"
+        }
+      }
+    },
+    {
+      "id": "e1000000-0000-4000-8000-000000000006",
+      "name": "Return counts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const f = $('Flatten earnings').first().json;\nreturn [{ json: { source: 'earnings', rows: f.count, calls: f.calls, failed: f.failed, failed_tickers: f.failed_tickers, no_date: f.no_date, ok: f.calls > 0 && f.failed < f.calls } }];"
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Input\n\nCalled with {run_id, as_of, tickers[], benchmarks[]}.",
+        "width": 304,
+        "height": 400,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Fan out + fetch\n\nOne item per non-ETF ticker. neverError with the full response: a bad reply becomes a ledger row, not a crash.",
+        "width": 576,
+        "height": 400,
+        "color": 3
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Normalize + store\n\nRows keyed ticker + report_date. One transaction: clear moved dates, upsert, one intel.api_usage row per call.",
+        "width": 576,
+        "height": 400,
+        "color": 5
+      },
+      "id": "zone-03",
+      "name": "zone-03",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        848,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Return\n\nCounts, failed tickers and the no-date list go back to Daily for the run status and the brief.",
+        "width": 304,
+        "height": 400,
+        "color": 5
+      },
+      "id": "zone-04",
+      "name": "zone-04",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Collect-Earnings: source + rules\n\n**Finnhub calendar/earnings**, one call per ticker, 1.1 s apart (60/min free tier), about a minute for the watchlist. Window: 100 days back for the last reported quarter and its surprise, 120 days forward for the next date.\n**Stored** in intel.earnings_calendar: report_date, hour (bmo before open, amc after close), EPS and revenue estimate vs actual, surprise_pct = (actual - estimate) / |estimate|.\n**Moved dates**: companies reschedule, so unreported future rows are cleared for every ticker that answered before the upsert. A ticker whose call failed keeps what it had.\n**No coverage** is normal for recent listings and some small caps; they come back in `no_date` so the brief can say the date is unknown instead of implying there is none. Benchmarks (ETFs) are skipped.",
+        "width": 960,
+        "height": 336,
+        "color": 7
+      },
+      "id": "zone-panel-1",
+      "name": "zone-panel-1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -544
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "One item per ticker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per ticker": {
+      "main": [
+        [
+          {
+            "node": "Finnhub earnings calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finnhub earnings calendar": {
+      "main": [
+        [
+          {
+            "node": "Flatten earnings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten earnings": {
+      "main": [
+        [
+          {
+            "node": "Upsert earnings_calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert earnings_calendar": {
+      "main": [
+        [
+          {
+            "node": "Return counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

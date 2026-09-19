@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#05060a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>Stock Intel</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iMzAiIGhlaWdodD0iMzAiIHJ4PSI3IiBmaWxsPSIjMGExMjIwIiBzdHJva2U9IiMzOGJkZjgiIHN0cm9rZS1vcGFjaXR5PSIwLjYiIHN0cm9rZS13aWR0aD0iMS41Ii8+PGxpbmUgeDE9IjExIiB5MT0iNyIgeDI9IjExIiB5Mj0iMjUiIHN0cm9rZT0iIzM4YmRmOCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48cmVjdCB4PSI4IiB5PSIxMiIgd2lkdGg9IjYiIGhlaWdodD0iOSIgcng9IjEuNSIgZmlsbD0iIzM4YmRmOCIvPjxsaW5lIHgxPSIyMSIgeTE9IjYiIHgyPSIyMSIgeTI9IjI0IiBzdHJva2U9IiM3ZGQzZmMiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHJlY3QgeD0iMTgiIHk9IjEwIiB3aWR0aD0iNiIgaGVpZ2h0PSI4IiByeD0iMS41IiBmaWxsPSIjN2RkM2ZjIi8+PC9zdmc+">
+<!--
+  Phone-first companion to ui.html. Served by GET /m. Same API, same token, same theme.
+  Five tabs: Holdings, Entries, Report, Analysis, Spend. Read-only except rating an analysis.
+  v0.1.0
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+  :root {
+    --bg: #05060a; --panel: #0a0e18; --panel-2: #0d1526; --panel-3: #111a2e;
+    --ink: #d4e3f5; --ink-2: #a9c4dd; --ink-3: #7ea8cc; --ink-4: #4a6a88;
+    --line: rgba(56,189,248,0.16); --line-soft: rgba(56,189,248,0.07);
+    --brand: #38bdf8; --brand-hi: #7dd3fc; --brand-bg: rgba(56,189,248,0.14);
+    --ok: #34d399; --bad: #f87171; --warn: #f59e0b; --info: #a78bfa;
+    --tab-h: 62px;
+  }
+  [x-cloak] { display: none !important; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
+  body { font-family: 'Chakra Petch', ui-sans-serif, system-ui, sans-serif; font-size: 15px; line-height: 1.4; overscroll-behavior-y: contain; }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
+
+  .top { position: sticky; top: 0; z-index: 20; background: rgba(5,6,10,0.92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line-soft);
+         padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; display: flex; align-items: center; gap: 10px; }
+  .top h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: .2px; }
+  .top .sub { font-size: 12px; color: var(--ink-3); }
+  .mark { width: 26px; height: 26px; border-radius: 7px; background: #0a1220; border: 1px solid rgba(56,189,248,0.5); box-shadow: 0 0 10px rgba(56,189,248,0.25); display: grid; place-items: center; flex: none; }
+
+  main { padding: 12px 16px calc(var(--tab-h) + env(safe-area-inset-bottom) + 16px); display: flex; flex-direction: column; gap: 10px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+  .card.soft { border-color: var(--line-soft); }
+  .card h2 { margin: 0 0 6px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--ink-3); }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .grow { flex: 1; min-width: 0; }
+  .tk { font-weight: 700; font-size: 17px; letter-spacing: .3px; }
+  .name { font-size: 12px; color: var(--ink-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .num { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .big { font-size: 22px; font-weight: 600; }
+  .up { color: var(--ok); } .down { color: var(--bad); } .flat { color: var(--ink-3); }
+  .muted { color: var(--ink-3); font-size: 12px; }
+  .kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 10px; margin-top: 10px; }
+  .kv div { font-size: 12px; color: var(--ink-4); }
+  .kv div b { display: block; font-weight: 500; color: var(--ink-2); font-size: 13px; }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; }
+  .pill-enter { background: rgba(52,211,153,.16); color: var(--ok); }
+  .pill-near  { background: rgba(56,189,248,.16); color: var(--brand-hi); }
+  .pill-wait  { background: rgba(126,168,204,.14); color: var(--ink-3); }
+  .pill-avoid { background: rgba(248,113,113,.16); color: var(--bad); }
+  .pill-warn  { background: rgba(245,158,11,.16); color: var(--warn); }
+  .pill-info  { background: rgba(167,139,250,.16); color: var(--info); }
+  .pill-ghost { background: var(--panel-3); color: var(--ink-3); }
+
+  .banner { border-radius: 12px; padding: 10px 12px; font-size: 13px; border: 1px solid; }
+  .banner.error { border-color: rgba(248,113,113,.55); background: rgba(248,113,113,.08); color: #fca5a5; }
+  .banner.warn  { border-color: rgba(245,158,11,.55); background: rgba(245,158,11,.08); color: #fcd34d; }
+  .banner b { display: block; margin-bottom: 2px; }
+
+  .seg { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .seg::-webkit-scrollbar { display: none; }
+  .seg button { flex: none; padding: 6px 12px; border-radius: 999px; font-size: 13px; background: var(--panel-2); color: var(--ink-3); border: 1px solid var(--line-soft); }
+  .seg button.on { background: var(--brand-bg); color: var(--brand-hi); border-color: var(--line); }
+
+  .bar { height: 8px; border-radius: 999px; background: var(--panel-3); overflow: hidden; margin: 10px 0 6px; }
+  .bar i { display: block; height: 100%; background: var(--brand); box-shadow: 0 0 10px rgba(56,189,248,.5); }
+  .bar i.hot { background: var(--warn); box-shadow: 0 0 10px rgba(245,158,11,.5); }
+  .bar i.over { background: var(--bad); box-shadow: 0 0 10px rgba(248,113,113,.5); }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 500; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); min-height: 44px; }
+  .btn.primary { background: var(--brand); color: #04141f; border-color: transparent; }
+  .btn.ok { border-color: rgba(52,211,153,.4); color: var(--ok); }
+  .btn.bad { border-color: rgba(248,113,113,.4); color: var(--bad); }
+  .btn[disabled] { opacity: .5; }
+  .btn.sm { min-height: 36px; padding: 6px 12px; font-size: 13px; }
+  .input { width: 100%; padding: 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); font-size: 16px; }
+  select.input { appearance: none; }
+
+  .md { font-size: 14px; }
+  .md h1, .md h2, .md h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--ink-3); margin: 14px 0 6px; }
+  .md h1:first-child, .md h2:first-child { margin-top: 0; }
+  .md p { margin: 6px 0; } .md ul { padding-left: 18px; margin: 4px 0; } .md li { margin: 2px 0; }
+  .md hr { border: 0; border-top: 1px solid var(--line-soft); margin: 10px 0; }
+  .md .tbl { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 4px -14px; padding: 0 14px; }
+  .md table { border-collapse: collapse; font-size: 12px; white-space: nowrap; font-family: 'IBM Plex Mono', monospace; }
+  .md th, .md td { padding: 5px 8px; border-bottom: 1px solid var(--line-soft); text-align: right; }
+  .md th:first-child, .md td:first-child { text-align: left; position: sticky; left: 0; background: var(--panel); font-weight: 600; }
+  .md th { color: var(--ink-3); font-weight: 500; }
+  .md strong { color: var(--ink); }
+  .cite { display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--brand-bg); color: var(--brand-hi); margin: 0 2px 2px 0; }
+  .cite.bad { background: rgba(248,113,113,.16); color: var(--bad); }
+  .claims p { margin: 4px 0; font-size: 14px; line-height: 1.45; }
+
+  details summary { list-style: none; cursor: pointer; }
+  details summary::-webkit-details-marker { display: none; }
+  .chev { transition: transform .15s; color: var(--ink-4); }
+  details[open] .chev { transform: rotate(180deg); }
+  .expand { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); font-size: 13px; color: var(--ink-2); }
+  .expand p { margin: 4px 0; }
+  .expand ul { margin: 4px 0; padding-left: 18px; }
+
+  nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; height: calc(var(--tab-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+             background: rgba(7,11,20,0.96); backdrop-filter: blur(12px); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(5, 1fr); }
+  nav.tabs button { white-space: nowrap; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; color: var(--ink-4); }
+  nav.tabs button.on { color: var(--brand-hi); text-shadow: 0 0 10px rgba(56,189,248,.55); }
+  nav.tabs svg { width: 22px; height: 22px; }
+  nav.tabs .dot { position: absolute; margin-left: 22px; margin-top: -14px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+  .toast { position: fixed; left: 16px; right: 16px; bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 12px); z-index: 40; padding: 10px 14px; border-radius: 10px; background: var(--panel-3); border: 1px solid var(--line); font-size: 13px; box-shadow: 0 8px 28px rgba(0,0,0,.6); }
+  .toast.error { border-color: rgba(248,113,113,.5); color: #fca5a5; }
+  .empty { text-align: center; color: var(--ink-4); padding: 28px 12px; font-size: 14px; }
+  .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
+  .gate { min-height: 100dvh; display: flex; flex-direction: column; justify-content: center; padding: 24px; gap: 12px; }
+</style>
+</head>
+<body x-data="mobile()" x-init="init()" x-cloak>
+
+<!-- Token gate -->
+<template x-if="!token">
+  <div class="gate">
+    <div class="row"><div class="mark"><svg width="16" height="16" viewBox="0 0 32 32"><line x1="11" y1="7" x2="11" y2="25" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/><rect x="8" y="12" width="6" height="9" rx="1.5" fill="#38bdf8"/><line x1="21" y1="6" x2="21" y2="24" stroke="#7dd3fc" stroke-width="3" stroke-linecap="round"/><rect x="18" y="10" width="6" height="8" rx="1.5" fill="#7dd3fc"/></svg></div><h1 style="margin:0;font-size:20px">Stock Intel</h1></div>
+    <p class="muted" style="font-size:14px">Paste <span class="mono">STOCK_INTEL_APP_TOKEN</span>. Stored only in this browser.</p>
+    <input class="input mono" type="password" x-model="tokenInput" placeholder="token" autocomplete="off" @keydown.enter="saveToken()">
+    <button class="btn primary" @click="saveToken()">Open</button>
+  </div>
+</template>
+
+<template x-if="token">
+  <div>
+    <header class="top">
+      <div class="mark"><svg width="16" height="16" viewBox="0 0 32 32"><line x1="11" y1="7" x2="11" y2="25" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/><rect x="8" y="12" width="6" height="9" rx="1.5" fill="#38bdf8"/><line x1="21" y1="6" x2="21" y2="24" stroke="#7dd3fc" stroke-width="3" stroke-linecap="round"/><rect x="18" y="10" width="6" height="8" rx="1.5" fill="#7dd3fc"/></svg></div>
+      <div class="grow">
+        <h1 x-text="titles[tab]"></h1>
+        <div class="sub" x-text="subtitle"></div>
+      </div>
+      <button class="btn sm" @click="refresh()" :disabled="busy" aria-label="Refresh">
+        <svg :class="busy ? 'spin' : ''" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+      </button>
+    </header>
+
+    <main>
+      <!-- Freshness banner, every tab -->
+      <div class="banner" :class="dataHealth ? dataHealth.status : ''" x-show="dataHealth && dataHealth.status !== 'ok'">
+        <b x-text="healthHeadline(dataHealth)"></b>
+        <template x-for="c in (dataHealth ? dataHealth.checks : [])" :key="c.key"><div :style="c.ok ? 'opacity:.6' : ''" x-text="(c.ok ? 'ok  ' : 'FAIL  ') + c.message"></div></template>
+        <div class="mono" x-show="dataHealth && !dataHealth.checks.some(c => !c.ok)" x-text="'Status ' + (dataHealth ? dataHealth.status : '') + ' with no failing check. Payload: ' + JSON.stringify(dataHealth)"></div>
+        <div class="muted" x-text="dataHealth ? 'expected session ' + (dataHealth.expected_session || '?') + ', checked ' + fmtTime(dataHealth.checked_at) : ''"></div>
+      </div>
+
+      <!-- ================= HOLDINGS ================= -->
+      <template x-if="tab === 'holdings'">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="card" x-show="positions.total.count">
+            <div class="row">
+              <div class="grow">
+                <h2>Equity</h2>
+                <div class="big num" x-text="money(liveTotal.market_value)"></div>
+              </div>
+              <div style="text-align:right">
+                <div class="num" :class="cls(liveTotal.gain)" x-text="signed(liveTotal.gain, 2) + ' (' + pct(liveTotal.gain_pct) + ')'"></div>
+                <div class="muted">since cost</div>
+                <div class="num" :class="cls(liveTotal.day_change)" x-text="signed(liveTotal.day_change, 2)"></div>
+                <div class="muted" x-text="quotesMeta.market_open ? 'today, live' : 'last session'"></div>
+              </div>
+            </div>
+          </div>
+
+          <template x-for="p in livePositions" :key="p.ticker">
+            <details class="card">
+              <summary>
+                <div class="row">
+                  <div class="grow">
+                    <div class="row" style="gap:8px"><span class="tk" x-text="p.ticker"></span><span class="pill pill-info" x-show="p.earn_days != null && p.earn_days <= 14" x-text="'earnings ' + p.earn_days + 'd'"></span></div>
+                    <div class="name" x-text="p.name || ''"></div>
+                  </div>
+                  <div style="text-align:right">
+                    <div class="num" style="font-size:16px;font-weight:600" x-text="num(p.price, 2)"></div>
+                    <div class="num" style="font-size:13px" :class="cls(p.day_pct)" x-text="pct(p.day_pct)"></div>
+                  </div>
+                  <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+                <div class="kv">
+                  <div>Value<b class="num" x-text="money(p.market_value)"></b></div>
+                  <div>Gain<b class="num" :class="cls(p.gain)" x-text="signed(p.gain, 0) + ' ' + pct(p.gain_pct)"></b></div>
+                  <div>Weight<b class="num" x-text="pctu(p.weight, 0)"></b></div>
+                </div>
+              </summary>
+              <div class="expand">
+                <div class="kv" style="margin-top:0">
+                  <div>Shares<b class="num" x-text="num(p.qty, 3)"></b></div>
+                  <div>Avg cost<b class="num" x-text="num(p.avg_cost, 2)"></b></div>
+                  <div>Cost basis<b class="num" x-text="money(p.cost_basis)"></b></div>
+                  <div>Last close<b class="num" x-text="num(p.last_close, 2)"></b></div>
+                  <div>Next earnings<b x-text="p.earn_next ? p.earn_next + (p.earn_hour ? ' ' + p.earn_hour : '') : 'unknown'"></b></div>
+                  <div>Opened<b x-text="day(p.opened_at) || 'unknown'"></b></div>
+                </div>
+                <p x-show="p.notes" class="muted" style="margin-top:8px" x-text="p.notes"></p>
+              </div>
+            </details>
+          </template>
+          <div class="empty" x-show="loaded.holdings && !positions.total.count">No positions recorded.</div>
+        </div>
+      </template>
+
+      <!-- ================= ENTRIES ================= -->
+      <template x-if="tab === 'entries'">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="seg">
+            <template x-for="s in ['all','enter','near','wait','avoid']" :key="s">
+              <button :class="entryFilter === s ? 'on' : ''" @click="entryFilter = s" x-text="s + (s === 'all' ? '' : ' ' + entryCount(s))"></button>
+            </template>
+          </div>
+          <div class="muted" x-show="entries.last_pass" x-text="'Last pass ' + fmtTime(entries.last_pass && entries.last_pass.finished_at) + (entries.last_pass && entries.last_pass.cost_usd != null ? ', $' + Number(entries.last_pass.cost_usd).toFixed(2) : '') + (entries.running.length ? ' · pass running' : '')"></div>
+
+          <template x-for="e in visibleEntries" :key="e.ticker">
+            <details class="card">
+              <summary>
+                <div class="row">
+                  <div class="grow">
+                    <div class="row" style="gap:8px">
+                      <span class="tk" x-text="e.ticker"></span>
+                      <span class="pill" :class="'pill-' + sig(e)" x-text="sig(e)"></span>
+                      <span class="pill pill-ghost" x-text="e.kind === 'add' ? 'add' : 'new'"></span>
+                      <span class="pill pill-warn" x-show="e.status === 'triggered'">triggered</span>
+                    </div>
+                    <div class="name" x-text="e.summary || (e.rule && e.rule.reasons[0]) || ''"></div>
+                  </div>
+                  <div style="text-align:right">
+                    <div class="num" style="font-size:16px;font-weight:600" x-text="num(livePrice(e), 2)"></div>
+                    <div class="muted num" x-text="zone(e)"></div>
+                  </div>
+                  <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+              </summary>
+              <div class="expand">
+                <div class="kv" style="margin-top:0">
+                  <div>Zone<b class="num" x-text="zone(e)"></b></div>
+                  <div>Invalidation<b class="num" x-text="e.invalidation != null ? num(e.invalidation, 2) : 'none'"></b></div>
+                  <div>Distance<b class="num" x-text="e.rule && e.rule.distance_pct != null ? pct(e.rule.distance_pct) : ''"></b></div>
+                  <div>RSI<b class="num" x-text="num(e.rsi14, 0)"></b></div>
+                  <div>Trend<b x-text="e.rule ? e.rule.trend : ''"></b></div>
+                  <div x-show="e.kind === 'add'">Avg cost<b class="num" x-text="num(e.avg_cost, 2)"></b></div>
+                </div>
+                <p style="margin-top:8px"><b style="color:var(--ink-3);font-weight:500">Rule</b> <span x-text="e.rule ? e.rule.signal + ': ' + e.rule.reasons.join('; ') : ''"></span></p>
+                <div x-show="e.rationale && e.rationale.length" class="claims" style="margin-top:6px">
+                  <b style="color:var(--ink-3);font-weight:500">Model</b>
+                  <template x-for="(c, i) in (e.rationale || [])" :key="i"><p><span x-text="c.text"></span> <span x-html="chips(c)"></span></p></template>
+                </div>
+                <ul x-show="e.watch_for && e.watch_for.length"><template x-for="w in (e.watch_for || [])" :key="w"><li x-text="w"></li></template></ul>
+                <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px">
+                  <span class="pill pill-info" x-show="e.flags && e.flags.length" x-text="(e.flags || []).join(', ')"></span>
+                  <span class="pill pill-avoid" x-show="e.risks && e.risks.length" x-text="(e.risks || []).join(', ')"></span>
+                  <span class="muted" x-text="e.signal_at ? 'signalled ' + fmtTime(e.signal_at) : 'no model pass yet'"></span>
+                </div>
+                <p class="muted" x-show="e.thesis" x-text="e.thesis"></p>
+              </div>
+            </details>
+          </template>
+          <div class="empty" x-show="loaded.entries && !visibleEntries.length">Nothing here.</div>
+        </div>
+      </template>
+
+      <!-- ================= REPORT ================= -->
+      <template x-if="tab === 'report'">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <select class="input mono" x-model="selectedDate" @change="loadReport(selectedDate)">
+            <template x-for="r in reports" :key="r.as_of"><option :value="r.as_of" x-text="r.as_of + '  ·  ' + r.setup_count + ' setups, ' + r.risk_count + ' risks'"></option></template>
+          </select>
+          <template x-for="s in reportSections" :key="s.title">
+            <details class="card" :open="s.open">
+              <summary class="row"><h2 class="grow" style="margin:0" x-text="s.title"></h2><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <div class="md" style="margin-top:8px" x-html="s.html"></div>
+            </details>
+          </template>
+          <div class="empty" x-show="loaded.report && !reportSections.length">No brief for this date.</div>
+        </div>
+      </template>
+
+      <!-- ================= ANALYSIS ================= -->
+      <template x-if="tab === 'analysis'">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <select class="input mono" x-model="selectedDate" @change="loadReport(selectedDate)">
+            <template x-for="r in reports" :key="r.as_of"><option :value="r.as_of" x-text="r.as_of + '  ·  analysis ' + (r.analysis_status || 'none')"></option></template>
+          </select>
+          <template x-if="analysis">
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div class="card soft">
+                <div class="row" style="flex-wrap:wrap;gap:6px">
+                  <span class="pill" :class="analysis.status === 'ok' ? 'pill-enter' : (analysis.status === 'running' || analysis.status === 'pending' ? 'pill-warn' : 'pill-avoid')" x-text="analysis.status"></span>
+                  <span class="muted mono" x-text="analysis.model || ''"></span>
+                  <span class="muted" x-show="analysis.cost_usd != null" x-text="'$' + Number(analysis.cost_usd).toFixed(2)"></span>
+                </div>
+                <div class="muted" style="margin-top:4px" x-text="'Run ' + fmtTime(analysis.finished_at || analysis.created_at)"></div>
+                <div style="color:var(--bad);font-size:13px;margin-top:6px" x-show="analysis.error" x-text="analysis.error"></div>
+              </div>
+              <template x-if="analysis.output">
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <div class="card"><h2>Market read</h2><div class="claims"><template x-for="(c, i) in analysis.output.market_read" :key="'m' + i"><p><span x-text="c.text"></span> <span x-html="chips(c)"></span></p></template></div></div>
+                  <div class="card" x-show="analysis.output.holdings.length"><h2>Holdings</h2>
+                    <template x-for="h in analysis.output.holdings" :key="'h' + h.ticker">
+                      <div style="padding:8px 0;border-bottom:1px solid var(--line-soft)">
+                        <div class="row"><span class="tk" style="font-size:15px" x-text="h.ticker"></span><span class="pill" :class="{hold:'pill-wait',add:'pill-enter',trim:'pill-warn',watch:'pill-near'}[h.stance]" x-text="h.stance"></span><span class="muted" x-text="Math.round(h.confidence * 100) + '%'"></span></div>
+                        <div class="claims"><template x-for="(c, i) in h.rationale" :key="i"><p><span x-text="c.text"></span> <span x-html="chips(c)"></span></p></template>
+                        <p class="muted"><b style="font-weight:500">Invalidation:</b> <span x-text="h.invalidation.text"></span> <span x-html="chips(h.invalidation)"></span></p></div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="card" x-show="analysis.output.entries.length"><h2>Entries</h2>
+                    <template x-for="e in analysis.output.entries" :key="'e' + e.ticker + e.setup">
+                      <div style="padding:8px 0;border-bottom:1px solid var(--line-soft)">
+                        <div class="row"><span class="tk" style="font-size:15px" x-text="e.ticker"></span><span class="pill pill-info" x-text="e.setup"></span><span class="num muted" x-text="num(e.entry_zone.low, 2) + ' to ' + num(e.entry_zone.high, 2) + ', ' + e.horizon"></span></div>
+                        <div class="claims"><template x-for="(c, i) in e.rationale" :key="i"><p><span x-text="c.text"></span> <span x-html="chips(c)"></span></p></template>
+                        <p class="muted"><b style="font-weight:500">Invalidation:</b> <span x-text="e.invalidation.text"></span> <span x-html="chips(e.invalidation)"></span></p></div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="card" x-show="analysis.output.avoid.length"><h2>Avoid</h2>
+                    <template x-for="a in analysis.output.avoid" :key="'a' + a.ticker"><p class="claims" style="margin:4px 0"><span class="tk" style="font-size:14px" x-text="a.ticker"></span> <span x-text="a.reason.text"></span> <span x-html="chips(a.reason)"></span></p></template>
+                  </div>
+                  <div class="card soft" x-show="(analysis.output.questions || []).length || (analysis.output.data_gaps || []).length">
+                    <h2>Open questions and gaps</h2>
+                    <ul style="margin:0;padding-left:18px;font-size:13px;color:var(--ink-2)"><template x-for="q in [...(analysis.output.questions || []), ...(analysis.output.data_gaps || [])]" :key="q"><li x-text="q"></li></template></ul>
+                  </div>
+                  <div class="card soft" x-show="(analysis.output.review && analysis.output.review.issues || []).length"><h2>Review notes</h2><ul style="margin:0;padding-left:18px;font-size:13px;color:var(--ink-2)"><template x-for="q in analysis.output.review.issues" :key="q"><li x-text="q"></li></template></ul></div>
+                </div>
+              </template>
+              <div class="card" x-show="analysis.status === 'ok'">
+                <h2>Rate this analysis</h2>
+                <div class="row">
+                  <button class="btn ok grow" @click="rate('up')" :disabled="rated === analysis.id">Useful</button>
+                  <button class="btn bad grow" @click="rate('down')" :disabled="rated === analysis.id">Not useful</button>
+                </div>
+                <div class="muted" style="margin-top:6px" x-show="rated === analysis.id">Thanks, recorded.</div>
+              </div>
+            </div>
+          </template>
+          <div class="empty" x-show="loaded.report && !analysis">No analysis for this brief.</div>
+        </div>
+      </template>
+
+      <!-- ================= SPEND ================= -->
+      <template x-if="tab === 'spend'">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="card">
+            <h2 x-text="'Today, ' + (spend.as_of || '')"></h2>
+            <div class="row">
+              <div class="big num grow" x-text="'$' + Number(spend.spent || 0).toFixed(2)"></div>
+              <div style="text-align:right">
+                <div class="num" x-text="spend.cap != null ? 'of $' + Number(spend.cap).toFixed(2) : 'no cap'"></div>
+                <div class="muted" x-text="spend.count + ' pass' + (spend.count === 1 ? '' : 'es')"></div>
+              </div>
+            </div>
+            <div class="bar"><i :class="spend.pct_used >= 1 ? 'over' : (spend.pct_used >= 0.75 ? 'hot' : '')" :style="'width:' + Math.min(100, Math.round((spend.pct_used || 0) * 100)) + '%'"></i></div>
+            <div class="muted" x-text="spend.remaining != null ? '$' + Number(spend.remaining).toFixed(2) + ' left before the cap stops new passes' : ''"></div>
+          </div>
+          <template x-for="it in (spend.items || [])" :key="it.id">
+            <div class="card soft">
+              <div class="row">
+                <div class="grow">
+                  <div class="row" style="gap:8px"><span class="pill" :class="it.mode === 'entry' ? 'pill-near' : 'pill-info'" x-text="it.mode"></span><span class="pill" :class="it.status === 'ok' ? 'pill-enter' : (it.status === 'running' || it.status === 'pending' ? 'pill-warn' : 'pill-avoid')" x-text="it.status"></span></div>
+                  <div class="name mono" style="margin-top:4px" x-text="it.model || ''"></div>
+                  <div class="muted" x-text="fmtTime(it.created_at) + (it.turns ? ' · ' + it.turns + ' turns, ' + (it.tool_calls || 0) + ' tools' : '') + (it.tokens_in ? ' · ' + Math.round(it.tokens_in / 1000) + 'k in / ' + Math.round((it.tokens_out || 0) / 1000) + 'k out' : '')"></div>
+                </div>
+                <div class="num" style="font-size:16px;font-weight:600" x-text="it.cost_usd != null ? '$' + Number(it.cost_usd).toFixed(2) : ''"></div>
+              </div>
+            </div>
+          </template>
+          <div class="empty" x-show="loaded.spend && !(spend.items || []).length">No passes yet today.</div>
+        </div>
+      </template>
+    </main>
+
+    <nav class="tabs">
+      <template x-for="t in ['holdings','entries','report','analysis','spend']" :key="t">
+        <button :class="tab === t ? 'on' : ''" @click="go(t)">
+          <span x-html="icons[t]"></span>
+          <span x-text="titles[t]"></span>
+        </button>
+      </template>
+    </nav>
+
+    <div class="toast" :class="toastKind" x-show="toastMsg" x-text="toastMsg" x-transition></div>
+  </div>
+</template>
+
+<script>
+// Wraps signed numbers (+1.3%, -0.12, -$40) in rendered markdown with gain/loss classes. Text nodes only, so links and dates are untouched.
+const SIGNED_NUM = /(^|[\s(|,:])([+-]\$?\d[\d,]*(?:\.\d+)?%?)(?=$|[\s)|,.;:])/g;
+function colorSigned(html, up = 'up', down = 'down') {
+  if (!html || !/[+-]\$?\d/.test(html)) return html;
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_TEXT);
+  const hits = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.nodeValue.search(SIGNED_NUM) >= 0) hits.push(n);
+  for (const n of hits) {
+    if (n.parentNode.closest('a, code, pre')) continue;
+    const span = document.createElement('span');
+    span.innerHTML = n.nodeValue.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+      .replace(SIGNED_NUM, (m, pre, v) => `${pre}<span class="${v[0] === '+' ? up : down}">${v}</span>`);
+    n.replaceWith(...span.childNodes);
+  }
+  return tpl.innerHTML;
+}
+
+function mobile() {
+  return {
+    token: '', tokenInput: '', tab: 'holdings', busy: false,
+    titles: { holdings: 'Holdings', entries: 'Entry Watch', report: 'Report', analysis: 'Analysis', spend: 'Spend' },
+    icons: {
+      holdings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="m7 15 4-5 4 3 5-7"/></svg>',
+      entries:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>',
+      report:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 3h9l5 5v13H6z"/><path d="M14 3v6h6M9 13h6M9 17h6"/></svg>',
+      analysis: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a5 5 0 0 1 5 5c0 2-1 3-2 4v2H9v-2c-1-1-2-2-2-4a5 5 0 0 1 5-5z"/><path d="M9 18h6M10 21h4"/></svg>',
+      spend:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1-1.3-1.5-3-1.5s-3 .6-3 1.7c0 2.3 6 1.3 6 3.6 0 1.1-1.3 1.7-3 1.7s-3-.5-3-1.5"/></svg>',
+    },
+    dataHealth: null, positions: { positions: [], total: { count: 0 } }, quotes: {}, quotesMeta: {}, earn: {},
+    entries: { entries: [], counts: {}, running: [], last_pass: null }, entryFilter: 'all',
+    reports: [], selectedDate: '', report: null, analysis: null, rated: null, spend: { items: [] },
+    loaded: {}, toastMsg: '', toastKind: '', timer: null,
+
+    async init() {
+      try { this.token = localStorage.getItem('stock_intel_token') || ''; } catch (e) { this.token = ''; }
+      const h = (location.hash || '').slice(1);
+      if (this.titles[h]) this.tab = h;
+      if (this.token) await this.refresh();
+      this.timer = setInterval(() => { if (!document.hidden && this.token) { this.loadQuotes(); this.loadHealth(); } }, 60000);
+    },
+    saveToken() {
+      const t = (this.tokenInput || '').trim();
+      if (!t) return;
+      try { localStorage.setItem('stock_intel_token', t); } catch (e) {}
+      this.token = t; this.tokenInput = '';
+      this.refresh();
+    },
+    async api(method, path, body) {
+      const opts = { method, headers: { 'Authorization': 'Bearer ' + this.token } };
+      if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+      const r = await fetch(path, opts);
+      if (r.status === 401) { try { localStorage.removeItem('stock_intel_token'); } catch (e) {} this.token = ''; throw new Error('Token rejected'); }
+      if (!r.ok) { let d = r.statusText; try { d = (await r.json()).detail || d; } catch (e) {} throw new Error(typeof d === 'string' ? d : JSON.stringify(d)); }
+      return r.status === 204 ? null : r.json();
+    },
+    go(t) { this.tab = t; location.hash = t; window.scrollTo(0, 0); this.load(t); },
+    async refresh() {
+      this.busy = true;
+      try { await Promise.all([this.loadHealth(), this.load(this.tab)]); }
+      finally { this.busy = false; }
+    },
+    async load(t) {
+      try {
+        if (t === 'holdings') { await this.loadPositions(); await Promise.all([this.loadQuotes(), this.loadEarnings()]); }
+        else if (t === 'entries') { await this.loadEntries(); this.loadQuotes(); }
+        else if (t === 'report' || t === 'analysis') { await this.loadReports(); }
+        else if (t === 'spend') { await this.loadSpend(); }
+      } catch (e) { this.toast(e.message, 'error'); }
+    },
+    healthHeadline(h) {
+      if (!h) return '';
+      const bad = (h.checks || []).filter(c => !c.ok).map(c => c.key);
+      if (bad.some(k => k === 'prices' || k === 'scores' || k === 'report')) return 'Pipeline data is stale';
+      if (bad.includes('run')) return 'Last daily run had problems';
+      if (bad.includes('analysis')) return 'Daily analysis is missing';
+      if (bad.includes('coverage')) return 'Some tickers have no price';
+      return 'Pipeline status ' + h.status;
+    },
+    async loadHealth() { try { this.dataHealth = await this.api('GET', '/api/health/data'); } catch (e) {} },
+    async loadPositions() { this.positions = await this.api('GET', '/api/positions'); this.loaded.holdings = true; },
+    async loadQuotes() {
+      const syms = [...new Set([...this.positions.positions.map(p => p.ticker), ...this.entries.entries.map(e => e.ticker)])];
+      if (!syms.length) return;
+      try { const q = await this.api('GET', '/api/quotes?tickers=' + syms.join(',')); this.quotes = q.quotes || {}; this.quotesMeta = q; } catch (e) {}
+    },
+    async loadEarnings() {
+      // Next report per ticker comes from the latest brief's score rows.
+      try {
+        if (!this.reports.length) this.reports = (await this.api('GET', '/api/reports?limit=30')).reports || [];
+        if (!this.reports.length) return;
+        const s = await this.api('GET', '/api/reports/' + this.reports[0].as_of + '/scores');
+        const m = {};
+        for (const r of s.scores || []) if (r.reasons && r.reasons.earnings) m[r.ticker] = r.reasons.earnings;
+        this.earn = m;
+      } catch (e) {}
+    },
+    async loadEntries() { this.entries = await this.api('GET', '/api/entries'); this.loaded.entries = true; },
+    async loadReports() {
+      this.reports = (await this.api('GET', '/api/reports?limit=30')).reports || [];
+      if (!this.selectedDate && this.reports.length) this.selectedDate = this.reports[0].as_of;
+      if (this.selectedDate) await this.loadReport(this.selectedDate); else this.loaded.report = true;
+    },
+    async loadReport(d) {
+      try { const r = await this.api('GET', '/api/reports/' + d); this.report = r.report; this.analysis = r.analysis; }
+      catch (e) { this.report = null; this.analysis = null; this.toast(e.message, 'error'); }
+      this.loaded.report = true;
+    },
+    async loadSpend() { this.spend = await this.api('GET', '/api/analyst/spend/detail'); this.loaded.spend = true; },
+    async rate(r) {
+      try { await this.api('POST', '/api/analyses/' + this.analysis.id + '/feedback', { rating: r }); this.rated = this.analysis.id; }
+      catch (e) { this.toast(e.message, 'error'); }
+    },
+
+    // ---- derived ----
+    get subtitle() {
+      if (this.tab === 'holdings') return this.quotesMeta.fetched_at ? (this.quotesMeta.market_open ? 'live, ' : 'last print, ') + this.fmtTime(this.quotesMeta.fetched_at) : (this.positions.positions[0] ? 'closes of ' + this.positions.positions[0].price_as_of : '');
+      if (this.tab === 'entries') return (this.entries.counts.watching || 0) + ' watching, ' + (this.entries.counts.triggered || 0) + ' triggered';
+      if (this.tab === 'report' || this.tab === 'analysis') return this.selectedDate ? 'brief of ' + this.selectedDate : '';
+      if (this.tab === 'spend') return this.spend.cap != null ? Math.round((this.spend.pct_used || 0) * 100) + '% of the daily cap' : '';
+      return '';
+    },
+    get livePositions() {
+      return this.positions.positions.map(p => {
+        const q = this.quotes[p.ticker], live = q && q.price != null;
+        const price = live ? q.price : p.last_close;
+        const base = live ? p.last_close : p.prev_close;
+        const e = this.earn[p.ticker] || {};
+        return { ...p, price, live,
+          market_value: price != null ? p.qty * price : p.market_value,
+          gain: price != null ? p.qty * (price - p.avg_cost) : p.gain,
+          gain_pct: price != null && p.avg_cost ? (price - p.avg_cost) / p.avg_cost : p.gain_pct,
+          day_change: price != null && base != null ? p.qty * (price - base) : p.day_change,
+          day_pct: price != null && base ? price / base - 1 : p.ret_1d,
+          earn_next: e.next || null, earn_hour: e.hour || null, earn_days: e.days == null ? null : e.days };
+      }).sort((a, b) => (b.market_value || 0) - (a.market_value || 0));
+    },
+    get liveTotal() {
+      const rows = this.livePositions;
+      const mv = rows.reduce((s, r) => s + (r.market_value || 0), 0), cost = rows.reduce((s, r) => s + (r.cost_basis || 0), 0);
+      const gain = rows.reduce((s, r) => s + (r.gain || 0), 0);
+      return { market_value: mv, gain, gain_pct: cost ? gain / cost : null, day_change: rows.reduce((s, r) => s + (r.day_change || 0), 0) };
+    },
+    sig(e) { return e.signal || (e.rule && e.rule.signal) || 'wait'; },
+    entryCount(s) { return this.entries.entries.filter(e => this.sig(e) === s).length; },
+    get visibleEntries() { return this.entries.entries.filter(e => this.entryFilter === 'all' || this.sig(e) === this.entryFilter); },
+    livePrice(e) { const q = this.quotes[e.ticker]; return q && q.price != null ? q.price : e.close; },
+    get reportSections() {
+      if (!this.report || !this.report.markdown) return [];
+      const parts = this.report.markdown.split(/\n(?=## )/);
+      const out = [];
+      for (const p of parts) {
+        const m = p.match(/^##\s+(.+)\n?([\s\S]*)$/);
+        if (!m) continue;
+        const title = m[1].trim();
+        const body = m[2].replace(/\n---[\s\S]*$/, '').trim();
+        const html = colorSigned(DOMPurify.sanitize(marked.parse(body)), 'up', 'down').replace(/<table/g, '<div class="tbl"><table').replace(/<\/table>/g, '</table></div>');
+        out.push({ title, html, open: !/^Watchlist/.test(title) });
+      }
+      const foot = this.report.markdown.match(/\n---\n([\s\S]*)$/);
+      if (foot) out.push({ title: 'Run', html: colorSigned(DOMPurify.sanitize(marked.parse(foot[1].trim())), 'up', 'down'), open: false });
+      return out;
+    },
+
+    // ---- format ----
+    num(v, d) { return v == null || v === '' ? '' : Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }); },
+    money(v) { return v == null ? '' : '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+    signed(v, d) { if (v == null) return ''; const n = Number(v); return (n > 0 ? '+' : '') + n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }); },
+    pctu(v, d) { return v == null ? '' : (Number(v) * 100).toFixed(d == null ? 1 : d) + '%'; },
+    zone(e) { if (e.zone_low == null) return 'no zone'; const d = Number(e.zone_high) < 100 ? 2 : 0; return this.num(e.zone_low, d) + '-' + this.num(e.zone_high, d); },
+    pct(v, d) { if (v == null) return ''; const n = Number(v) * 100; return (n > 0 ? '+' : '') + n.toFixed(d == null ? 1 : d) + '%'; },
+    cls(v) { return v == null ? 'flat' : (Number(v) > 0 ? 'up' : (Number(v) < 0 ? 'down' : 'flat')); },
+    day(ts) { return ts ? String(ts).slice(0, 10) : ''; },
+    fmtTime(ts) { if (!ts) return '-'; return new Date(ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); },
+    chips(c) {
+      if (!c) return '';
+      const esc = t => String(t).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+      const parts = (c.cites || []).map(id => `<span class="cite">${esc(id.replace(/^db:/, '').split(':').slice(0, 2).join(':'))}</span>`);
+      if (c.ungrounded && c.ungrounded.length) parts.push(`<span class="cite bad">ungrounded ${esc(c.ungrounded.join(', '))}</span>`);
+      return parts.join('');
+    },
+    toast(msg, kind) { this.toastMsg = msg; this.toastKind = kind || ''; clearTimeout(this._t); this._t = setTimeout(() => this.toastMsg = '', 3500); },
+  };
+}
+</script>
+</body>
+</html>

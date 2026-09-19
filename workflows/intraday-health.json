@@ -1,0 +1,263 @@
+{
+  "id": "siIntradayHlth01",
+  "name": "stock-intel: Intraday Health (WF-07)",
+  "tags": [
+    "stock-intel",
+    "intraday"
+  ],
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "nodes": [
+    {
+      "id": "a1111111-1111-4111-8111-111111111111",
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a2222222-2222-4222-8222-222222222222",
+      "name": "Read collection status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT json_build_object(\n  'now', now(),\n  'session', (\n    SELECT json_build_object('session_id', session_id, 'open_at', open_at, 'close_at', close_at, 'early_close', early_close)\n    FROM intraday.session_manifests\n    WHERE trade_date = (now() AT TIME ZONE 'America/New_York')::date\n    ORDER BY created_at DESC LIMIT 1\n  ),\n  'health', (\n    SELECT coalesce(json_agg(h), '[]'::json) FROM (\n      SELECT DISTINCT ON (source) source, checked_at,\n             round(extract(epoch FROM now() - checked_at)::numeric, 1) AS checked_age_s,\n             provider_age_s, http_failures, missing_symbols, status, last_success_at\n      FROM intraday.source_health\n      WHERE checked_at > now() - interval '1 hour'\n      ORDER BY source, checked_at DESC\n    ) h\n  ),\n  'newest_bar', (\n    SELECT json_build_object('bar_end', max(bar_end),\n           'age_s', round(extract(epoch FROM now() - max(bar_end))::numeric, 1))\n    FROM intraday.bar_versions WHERE bar_end > now() - interval '1 day'\n  ),\n  'jobs', (\n    SELECT coalesce(json_agg(j), '[]'::json) FROM (\n      SELECT workflow, source, status, lease_owner,\n             round(extract(epoch FROM now() - lease_expires)::numeric, 1) AS lease_overdue_s, attempts\n      FROM intraday.ingestion_jobs WHERE status IN ('claimed','pending','failed')\n    ) j\n  ),\n  'open_incidents', (\n    SELECT coalesce(json_agg(i), '[]'::json) FROM (\n      SELECT id, kind, detail->>'sig' AS sig FROM intraday.incidents WHERE resolved_at IS NULL\n    ) i\n  )\n) AS status;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "a3333333-3333-4333-8333-333333333333",
+      "name": "Evaluate thresholds",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Turn collection status into incidents. Only alarm inside an expected session window\n// (a committed manifest exists and now is within OPEN-30m..CLOSE+15m). No session -> quiet.\nconst s = $json.status;\nconst now = new Date(s.now);\nconst sess = s.session;\nconst sid = sess ? sess.session_id : null;\nlet expected = false;\nif (sess && sess.open_at && sess.close_at) {\n  const openMs = new Date(sess.open_at).getTime() - 30 * 60 * 1000;\n  const closeMs = new Date(sess.close_at).getTime() + 15 * 60 * 1000;\n  const t = now.getTime();\n  expected = t >= openMs && t <= closeMs;\n}\nconst problems = [];\nif (expected) {\n  const health = s.health || [];\n  for (const h of health) {\n    if (h.status === 'outage') problems.push({ sig: `outage:${h.source}`, kind: 'stale_feed', severity: 'critical', detail: { source: h.source, status: h.status, checked_age_s: h.checked_age_s } });\n    if (h.checked_age_s != null && h.checked_age_s > 180) problems.push({ sig: `heartbeat_stale:${h.source}`, kind: 'stale_feed', severity: 'error', detail: { source: h.source, checked_age_s: h.checked_age_s } });\n    if (h.provider_age_s != null && Number(h.provider_age_s) > 120) problems.push({ sig: `provider_lag:${h.source}`, kind: 'stale_feed', severity: 'warn', detail: { source: h.source, provider_age_s: h.provider_age_s } });\n    if (h.http_failures && h.http_failures > 0) problems.push({ sig: `http_failures:${h.source}`, kind: 'stale_feed', severity: 'warn', detail: { source: h.source, http_failures: h.http_failures } });\n    if (h.missing_symbols && h.missing_symbols.length) problems.push({ sig: `missing_symbols:${h.source}`, kind: 'stale_feed', severity: 'warn', detail: { source: h.source, missing_symbols: h.missing_symbols } });\n  }\n  if (health.length === 0) problems.push({ sig: 'no_health', kind: 'stale_feed', severity: 'error', detail: { note: 'no source_health rows in the last hour during an active session window' } });\n  const nb = s.newest_bar || {};\n  if (nb.bar_end == null) problems.push({ sig: 'no_bars', kind: 'stale_feed', severity: 'error', detail: { note: 'no bars in the last day during an active session' } });\n  else if (nb.age_s != null && Number(nb.age_s) > 180) problems.push({ sig: 'bar_gap', kind: 'stale_feed', severity: 'warn', detail: { newest_bar_end: nb.bar_end, age_s: nb.age_s } });\n  for (const j of (s.jobs || [])) {\n    if (j.status === 'failed') problems.push({ sig: `job_failed:${j.workflow}:${j.source}`, kind: 'stale_feed', severity: 'error', detail: { job: j } });\n    else if (j.status === 'claimed' && j.lease_overdue_s != null && Number(j.lease_overdue_s) > 0) problems.push({ sig: `lease_overdue:${j.workflow}:${j.source}`, kind: 'stale_feed', severity: 'warn', detail: { job: j } });\n  }\n}\nconst openSigs = new Set((s.open_incidents || []).map(i => i.sig).filter(Boolean));\nconst problemSigs = new Set(problems.map(p => p.sig));\nconst toOpen = problems.filter(p => !openSigs.has(p.sig));\nconst toResolve = [...openSigs].filter(sig => !problemSigs.has(sig));\nreturn [{ json: {\n  session_id: sid,\n  expected,\n  new_incidents: toOpen.map(p => ({ session_id: sid, kind: p.kind, severity: p.severity, detail: JSON.stringify({ ...p.detail, sig: p.sig }) })),\n  resolve_sigs: toResolve,\n  summary: { expected, problems: problems.length, opening: toOpen.length, resolving: toResolve.length }\n} }];"
+      }
+    },
+    {
+      "id": "a4444444-4444-4444-8444-444444444444",
+      "name": "Apply incidents",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        976,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intraday.incidents (session_id, kind, severity, detail)\nSELECT nullif(x.session_id,'')::uuid, x.kind, x.severity, x.detail::jsonb\nFROM jsonb_to_recordset($1::jsonb) AS x(session_id text, kind text, severity text, detail text);\n\nUPDATE intraday.incidents SET resolved_at = now()\nWHERE resolved_at IS NULL AND detail->>'sig' IN (SELECT jsonb_array_elements_text($2::jsonb));",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.new_incidents), JSON.stringify($json.resolve_sigs)] }}",
+          "queryBatching": "transaction"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "a5555555-5555-4555-8555-555555555555",
+      "name": "Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const e = $('Evaluate thresholds').first().json;\nreturn [{ json: { ok: true, session_id: e.session_id, ...e.summary } }];"
+      }
+    },
+    {
+      "id": "a6666666-6666-4666-8666-666666666666",
+      "name": "On workflow error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        432
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "a7777777-7777-4777-8777-777777777777",
+      "name": "Log workflow-error incident",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        336,
+        432
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intraday.incidents (kind, severity, detail)\nVALUES ('workflow_error', 'error', $1::jsonb);",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify({ sig: 'workflow_error:' + (($json.workflow && $json.workflow.name) || 'unknown') + ':' + (($json.execution && $json.execution.id) || ''), workflow: ($json.workflow && $json.workflow.name) || null, node: ($json.execution && $json.execution.lastNodeExecuted) || null, error: (($json.execution && $json.execution.error && $json.execution.error.message) || 'unknown').slice(0,500) })] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Trigger\n\nEvery minute. Self-gates: raises incidents only inside an expected session window (a WF-01 manifest exists, now within OPEN-30m..CLOSE+15m). Quiet otherwise.",
+        "width": 304,
+        "height": 448,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Read status\n\nOne read-only query builds a status object: latest source_health per source, newest bar age, open jobs and lease, today's manifest, open-incident sigs.",
+        "width": 304,
+        "height": 448,
+        "color": 3
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Evaluate + apply\n\nThresholds: heartbeat >180s, provider age >120s, http failures, outage, bar gap >180s, overdue lease. Each problem carries a stable sig; new sigs open an incident, cleared sigs resolve. Deduped by open sig, no messaging.",
+        "width": 912,
+        "height": 448,
+        "color": 5
+      },
+      "id": "zone-03",
+      "name": "zone-03",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        576,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Workflow errors\n\nError Trigger. Registered as the errorWorkflow for the intraday collectors; each failed run appends a workflow_error incident with the node and message.",
+        "width": 576,
+        "height": 384,
+        "color": 6
+      },
+      "id": "zone-04",
+      "name": "zone-04",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        256
+      ]
+    }
+  ],
+  "connections": {
+    "Every minute": {
+      "main": [
+        [
+          {
+            "node": "Read collection status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read collection status": {
+      "main": [
+        [
+          {
+            "node": "Evaluate thresholds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate thresholds": {
+      "main": [
+        [
+          {
+            "node": "Apply incidents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply incidents": {
+      "main": [
+        [
+          {
+            "node": "Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On workflow error": {
+      "main": [
+        [
+          {
+            "node": "Log workflow-error incident",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

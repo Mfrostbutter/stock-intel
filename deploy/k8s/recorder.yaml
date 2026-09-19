@@ -1,0 +1,59 @@
+# Intraday recorder on Kubernetes. Single-writer: one replica, Recreate strategy; the DB
+# lease (intraday.ingestion_jobs) is the authoritative single-writer guard through any rollover.
+# Read-only market data. No orders. Secrets injected from the intraday-recorder-secrets Secret.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: intraday
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intraday-recorder-config
+  namespace: intraday
+data:
+  SI_INTRADAY_FEED: "iex"
+  SI_INTRADAY_SYMBOLS: "SPY,QQQ"
+  SI_INTRADAY_POLL_SECONDS: "60"
+  SI_INTRADAY_LEASE_SECONDS: "120"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intraday-recorder
+  namespace: intraday
+  labels:
+    app: intraday-recorder
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: intraday-recorder
+  template:
+    metadata:
+      labels:
+        app: intraday-recorder
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: recorder
+          image: stock-intel/intraday-recorder:0.1.0
+          imagePullPolicy: Never
+          env:
+            - name: STOCKS_PG_HOST
+              value: "postgres"           # however Postgres is reachable from the cluster
+          envFrom:
+            - configMapRef:
+                name: intraday-recorder-config
+            - secretRef:
+                name: intraday-recorder-secrets
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "96Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

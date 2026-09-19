@@ -1,0 +1,17 @@
+# Secrets. Never commit. Every value lives in .env, which stays on the host.
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Scratch: screenshots, playwright output, throwaway scripts
+.tmp/
+.playwright-mcp/
+shots/
+*.png
+!docs/**/*.png

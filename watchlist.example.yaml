@@ -1,0 +1,40 @@
+# Your watchlist. Copy to watchlist.yaml, edit freely, then:
+#   python scripts/seed_watchlist.py
+#
+# The file seeds the database. After that the app's Watchlist screen owns the list, and
+# re-running the seeder only adds and updates. Pass --retire-missing if you would rather
+# the file stay the source of truth.
+#
+# Rules:
+#   - Every ticker is validated against Finnhub before it is written.
+#   - At least one benchmark is required: relative strength is scored against it.
+#   - Tags are free text and drive nothing but your own filtering, with one exception:
+#     `holding` is reserved. It is derived from your Positions and the loader rejects it here.
+#   - target_entry and notes are optional, and the UI can edit both later.
+#   - A new ticker triggers a 2-year price backfill, then fills in news, fundamentals and
+#     signals on the next daily run. Scores stay null until coverage passes 50%.
+
+benchmarks: [SPY, QQQ]
+
+tickers:
+  # A neutral starter set: large caps across a few sectors. Replace it with your own.
+  - {ticker: AAPL,  tags: [tech]}
+  - {ticker: MSFT,  tags: [tech]}
+  - {ticker: GOOGL, tags: [tech]}
+  - {ticker: AMZN,  tags: [consumer]}
+  - {ticker: NVDA,  tags: [semis]}
+  - {ticker: AMD,   tags: [semis]}
+  - {ticker: AVGO,  tags: [semis]}
+  - {ticker: JPM,   tags: [financials]}
+  - {ticker: V,     tags: [financials]}
+  - {ticker: UNH,   tags: [healthcare]}
+  - {ticker: JNJ,   tags: [healthcare]}
+  - {ticker: XOM,   tags: [energy]}
+  - {ticker: CVX,   tags: [energy]}
+  - {ticker: CAT,   tags: [industrials]}
+  - {ticker: HON,   tags: [industrials]}
+  - {ticker: PG,    tags: [staples]}
+  - {ticker: KO,    tags: [staples]}
+  - {ticker: COST,  tags: [consumer]}
+  - {ticker: TSLA,  tags: [consumer], notes: "high beta, watch position size"}
+  - {ticker: NEE,   tags: [utilities], target_entry: 60}

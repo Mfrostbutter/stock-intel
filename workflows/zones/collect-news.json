@@ -1,0 +1,67 @@
+{
+  "gutter": 16,
+  "panels": [
+    {
+      "title": "Collect-News: sources + rules",
+      "color": 7,
+      "width": 960,
+      "body": "**Finnhub company-news** (top row): headlines per ticker for the 3 days ending as_of, 1.1 s between calls (60/min free tier). No sentiment on free; rows land with sentiment NULL. id = fh-<ticker>-<finnhub id>, ticker = the queried symbol, so a shared article is kept once per ticker.\n**Alpha Vantage NEWS_SENTIMENT** (bottom row): 25 calls/day and a multi-ticker query means ALL tickers (AND), so: 4 topic calls (technology, manufacturing, energy_transportation, financial_markets) + one call per holding + a rotating slice of the rest, 22 calls total. Per-ticker sentiment in [-1, 1]; relevance < 0.1 is dropped. id = av-<ticker>-<hash(url)>. A throttle note is logged as quota_skip, never a crash.\n**Aggregate**: after both branches, one SQL rolls the last 7 days of intel.news_articles into intel.sentiment_daily (mean sentiment, article count). Benchmarks (ETFs) never get news."
+    }
+  ],
+  "zones": [
+    {
+      "title": "Input",
+      "color": 4,
+      "nodes": [
+        "When called"
+      ],
+      "body": "Called with {run_id, as_of, tickers[], benchmarks[]}. ETFs are skipped."
+    },
+    {
+      "title": "Fan out",
+      "color": 5,
+      "nodes": [
+        "One item per ticker",
+        "AV query plan"
+      ],
+      "body": "Top: one item per ticker. Bottom: Alpha Vantage plan, 4 topic calls + holdings + a rotating slice."
+    },
+    {
+      "title": "Fetch",
+      "color": 3,
+      "nodes": [
+        "Finnhub company-news",
+        "Alpha Vantage NEWS_SENTIMENT"
+      ],
+      "body": "Rate-limited HTTP calls. neverError on: a bad reply becomes data, not a crash. Finnhub returns the full response so the status code reaches the ledger."
+    },
+    {
+      "title": "Normalize",
+      "color": 5,
+      "nodes": [
+        "Flatten Finnhub",
+        "Flatten AV"
+      ],
+      "body": "Rows for intel.news_articles with stable ids so re-runs never duplicate."
+    },
+    {
+      "title": "Store",
+      "color": 3,
+      "nodes": [
+        "Upsert Finnhub articles",
+        "Upsert AV articles"
+      ],
+      "body": "Upserts plus one intel.api_usage row per call: ticker or topic, ok / quota_skip / error, http code."
+    },
+    {
+      "title": "Aggregate",
+      "color": 5,
+      "nodes": [
+        "Wait for both",
+        "Aggregate sentiment_daily",
+        "Return counts"
+      ],
+      "body": "Merge waits for both branches, then 7-day sentiment per ticker goes to intel.sentiment_daily and counts return to the caller."
+    }
+  ]
+}

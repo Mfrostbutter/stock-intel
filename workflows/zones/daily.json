@@ -1,0 +1,81 @@
+{
+  "gutter": 16,
+  "panels": [
+    {
+      "title": "Stock Intel: Daily",
+      "color": 6,
+      "width": 720,
+      "body": "Personal research pipeline for your own watchlist. Framework, not advice; nothing here places orders.\n\n**Runs** weekdays 06:00 in the instance timezone. as_of = last completed session, so Monday reports Friday.\n**Reads/writes** Postgres `stocks`, schema `intel`, role stocks_n8n.\n**Sub-workflows** Collect-Prices (Alpaca), Compute-Indicators (JS), Collect-News (Finnhub + Alpha Vantage), Collect-Earnings (Finnhub), Collect-Fundamentals (Finnhub), Collect-Signals (Finnhub insiders + recs). Each runs with continueRegularOutput: a dead source degrades the brief, never kills the run.\n**Credentials** created from .env by scripts/bootstrap.py, named `Stock Intel ...`.\n**Source** the stock-intel repo: sql/, workflows/, scripts/deploy_workflow.py. Edit the JSON in the repo and redeploy with the script, so the canvas and the file never drift."
+    },
+    {
+      "title": "Quotas + watchlist",
+      "color": 7,
+      "width": 480,
+      "body": "Free tiers per weekday: Finnhub ~250 of 86k, Alpha Vantage 22 of 25, Alpaca ~55 calls. Ledger: intel.api_usage, one row per call.\n\n**Watchlist** = intel.watchlist where active, seeded from watchlist.yaml and edited in the app. Tags are yours; two are special: `benchmark` (priced and scored for context, never flagged) and `holding` (derived from Positions).\n**Weights** intel.config key `weights`. Scores v2 use all four components."
+    }
+  ],
+  "zones": [
+    {
+      "title": "Trigger + run context",
+      "color": 4,
+      "nodes": [
+        "Weekdays 06:00 ET",
+        "Run webhook",
+        "Start run + watchlist",
+        "Alpaca calendar",
+        "Build context"
+      ],
+      "body": "Cron 0 6 * * 1-5, plus a POST webhook on stock-intel/run so the app's Run now button starts the same pipeline (header auth, responds immediately). One SQL opens a row in intel.runs and returns the active watchlist, benchmarks, holdings, weights and the delivery settings (app_base_url, telegram), so no node hardcodes a hostname or a chat. Alpaca calendar lists the last 14 days of sessions; Build context sets as_of to the last session whose 18:00 has passed, so a market holiday is never scored. If the calendar call fails it falls back to weekday math and the run is marked degraded."
+    },
+    {
+      "title": "Collect",
+      "color": 5,
+      "nodes": [
+        "Collect-Prices",
+        "Ctx 1",
+        "Compute-Indicators",
+        "Ctx 2",
+        "Collect-News",
+        "Ctx 3",
+        "Collect-Earnings",
+        "Ctx 4",
+        "Collect-Fundamentals",
+        "Ctx 5",
+        "Collect-Signals"
+      ],
+      "body": "Six sub-workflows in sequence, each given the same context item: prices, indicators, news, earnings dates, fundamentals, signals (insiders + analyst recs). The Ctx nodes re-emit Build context because a sub-workflow returns its own counts, not the input."
+    },
+    {
+      "title": "Score",
+      "color": 5,
+      "nodes": [
+        "Load snapshot",
+        "Score v2",
+        "Upsert scores_daily"
+      ],
+      "body": "One SQL joins watchlist, close, indicators, 7-day sentiment, a 30-day sentiment and article-count baseline, the prior 20-day high, top headlines, next and last earnings, the latest fundamentals snapshot, 90-day open-market insider flow and the last two months of analyst recs. Score v2 (JS) computes momentum, sentiment, growth-adjusted value and catalyst (earnings ahead, last surprise, news surge relative to the watchlist median that day, insider net flow, analyst buy share and its shift), each 0-100 and only where at least half its inputs exist; composite from the config weights renormalized over present components; entry flags (pullback-in-uptrend, oversold-bounce, breakout, near-target) and risk flags incl. earnings-soon at 7 days or less. Every row carries score_version and coverage. Stored in intel.scores_daily."
+    },
+    {
+      "title": "Brief + Telegram",
+      "color": 4,
+      "nodes": [
+        "Build brief",
+        "Telegram enabled?",
+        "Telegram brief",
+        "Attach full brief?",
+        "Brief to file"
+      ],
+      "body": "Markdown + HTML: market context, holdings, entry setups with evidence, watchlist table, risk flags, run footer. Build brief also sets the run status from what the collectors returned: ok, degraded (issues listed in runs.summary and the brief footer) or failed (nothing priced), and trims a short Telegram message (status, movers, setups, risks, issues) to fit the 4096-character cap. Telegram enabled? reads intel.config.telegram.chat_id: blank routes straight to the store and the brief stays in the app. Attach full brief? honours telegram.send_document; Brief to file turns the markdown into a .md attachment."
+    },
+    {
+      "title": "Store + analyze",
+      "color": 4,
+      "nodes": [
+        "Telegram document",
+        "Store report + finish run",
+        "Analyze brief"
+      ],
+      "body": "intel.reports gets the markdown and HTML copy and intel.runs is closed with a summary. reports.sent_to says 'telegram' only when the message node really ran without error, otherwise it stays empty. Analyze brief POSTs /api/reports/{as_of}/analyze to the app at intel.config.app_base_url (header auth); the analyst runs in the background and Today shows the result with citations. continueRegularOutput: an unreachable app never fails the run."
+    }
+  ]
+}

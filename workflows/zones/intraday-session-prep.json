@@ -1,0 +1,23 @@
+{
+  "gutter": 16,
+  "zones": [
+    {
+      "title": "Triggers + session gate",
+      "body": "06:00 prep and every 5 min 08:00-09:55 ET. Get today's calendar; on a non-trading day the gate stops the run. phase = prep / scan / freeze (>= OPEN-5m).",
+      "color": 4,
+      "nodes": ["Prep + premarket scan", "Get today calendar", "Session gate"]
+    },
+    {
+      "title": "Discovery + rank",
+      "body": "Union Alpaca movers (gap%) and most-actives (liquidity), enrich with one snapshots batch. Frozen v0: gate price>=$5 and dollar_vol>=$5M, rank by abs(gap%), cap 10 + SPY/QQQ benchmarks. Places no orders.",
+      "color": 5,
+      "nodes": ["Movers", "Most actives", "Build candidate pool", "Snapshots", "Rank + gate"]
+    },
+    {
+      "title": "Persist + freeze",
+      "body": "Each scan preserves a candidate snapshot and upserts the calendar. session_id = uuid_generate_v5, matching the recorder's bars. The manifest freezes once at OPEN-5m, never overwritten.",
+      "color": 3,
+      "nodes": ["Write scan snapshot", "Upsert calendar", "Commit / freeze manifest", "Summary"]
+    }
+  ]
+}

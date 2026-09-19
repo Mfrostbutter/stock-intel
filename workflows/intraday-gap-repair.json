@@ -1,0 +1,353 @@
+{
+  "id": "siIntradayGap001",
+  "name": "stock-intel: Intraday Gap Repair (WF-08)",
+  "tags": [
+    "stock-intel",
+    "intraday"
+  ],
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "lLH10M2Hbm7hjQip"
+  },
+  "nodes": [
+    {
+      "id": "b1111111-1111-4111-8111-111111111111",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2222222-2222-4222-8222-222222222222",
+      "name": "Find gaps",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH sess AS (\n  SELECT session_id, open_at, least(close_at + interval '30 minutes', now()) AS end_at, symbols\n  FROM intraday.session_manifests\n  WHERE trade_date = (now() AT TIME ZONE 'America/New_York')::date\n  ORDER BY created_at DESC LIMIT 1\n),\nsyms AS (\n  SELECT s.session_id, s.open_at, s.end_at, (elem->>'symbol') AS symbol\n  FROM sess s, jsonb_array_elements(s.symbols) elem\n),\ngrid AS (\n  SELECT y.symbol, g AS bar_end\n  FROM syms y,\n       generate_series(date_trunc('minute', y.open_at) + interval '1 minute',\n                       date_trunc('minute', least(y.end_at, now())) - interval '2 minute',\n                       interval '1 minute') g\n),\npresent AS (\n  SELECT DISTINCT symbol, bar_end FROM intraday.bar_versions\n  WHERE bar_end >= (SELECT open_at FROM sess) AND bar_end <= (SELECT end_at FROM sess)\n)\nSELECT json_build_object(\n  'session_id', (SELECT session_id FROM sess),\n  'open_at', (SELECT open_at FROM sess),\n  'end_at', (SELECT end_at FROM sess),\n  'gaps', coalesce((\n    SELECT json_agg(json_build_object('symbol', gp.symbol, 'from', gp.min_end, 'to', gp.max_end, 'n', gp.n) ORDER BY gp.symbol)\n    FROM (\n      SELECT symbol, min(bar_end) AS min_end, max(bar_end) AS max_end, count(*) AS n\n      FROM grid g\n      WHERE NOT EXISTS (SELECT 1 FROM present p WHERE p.symbol = g.symbol AND p.bar_end = g.bar_end)\n      GROUP BY symbol\n    ) gp\n  ), '[]'::json)\n) AS report;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "b3333333-3333-4333-8333-333333333333",
+      "name": "Plan repair",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Build a bounded repair plan. Emit zero items when there is no session or no gaps\n// (downstream nodes then do not run, so the workflow is quiet). One HTTP call covers the\n// union window of all gap symbols; genuine no-trade minutes simply come back empty and stay absent.\nconst r = $json.report;\nif (!r || !r.session_id || !Array.isArray(r.gaps) || r.gaps.length === 0) return [];\nconst symbols = r.gaps.map(g => g.symbol);\nconst froms = r.gaps.map(g => new Date(g.from).getTime());\nconst tos = r.gaps.map(g => new Date(g.to).getTime());\n// gap 'from'/'to' are bar_end values; Alpaca bars are keyed by bar start, so widen start by 1 min.\nconst start = new Date(Math.min(...froms) - 60000).toISOString();\nconst end = new Date(Math.max(...tos)).toISOString();\nconst d = new Date();\nconst due_window = `gap:${d.toISOString().slice(0,10)}:${d.getUTCHours()}:${Math.floor(d.getUTCMinutes()/5)*5}`;\nreturn [{ json: {\n  session_id: r.session_id,\n  symbols,\n  symbols_csv: symbols.join(','),\n  start,\n  end,\n  due_window,\n  owner: `wf08-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,\n  token: Date.now(),\n  total_missing: r.gaps.reduce((a,g) => a + Number(g.n), 0)\n} }];"
+      }
+    },
+    {
+      "id": "b4444444-4444-4444-8444-444444444444",
+      "name": "Claim gap-repair lease",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        912,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intraday.ingestion_jobs\n  (workflow, source, session_id, due_window, status, lease_owner, fencing_token, lease_expires, claimed_at)\nVALUES ('gap_repair', 'alpaca_iex', $1::uuid, $2, 'claimed', $3, $4::bigint, now() + interval '240 seconds', now())\nON CONFLICT (workflow, source, session_id, due_window) DO UPDATE\n  SET lease_owner = EXCLUDED.lease_owner, fencing_token = EXCLUDED.fencing_token,\n      lease_expires = EXCLUDED.lease_expires, status = 'claimed',\n      attempts = intraday.ingestion_jobs.attempts + 1\n  WHERE intraday.ingestion_jobs.lease_expires < now()\n     OR intraday.ingestion_jobs.lease_owner = EXCLUDED.lease_owner\nRETURNING id, fencing_token;",
+        "options": {
+          "queryReplacement": "={{ [$json.session_id, $json.due_window, $json.owner, $json.token] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "b5555555-5555-4555-8555-555555555555",
+      "name": "Fetch Alpaca bars",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1248,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "url": "https://data.alpaca.markets/v2/stocks/bars",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbols",
+              "value": "={{ $('Plan repair').first().json.symbols_csv }}"
+            },
+            {
+              "name": "timeframe",
+              "value": "1Min"
+            },
+            {
+              "name": "start",
+              "value": "={{ $('Plan repair').first().json.start }}"
+            },
+            {
+              "name": "end",
+              "value": "={{ $('Plan repair').first().json.end }}"
+            },
+            {
+              "name": "limit",
+              "value": "10000"
+            },
+            {
+              "name": "feed",
+              "value": "iex"
+            },
+            {
+              "name": "adjustment",
+              "value": "raw"
+            },
+            {
+              "name": "sort",
+              "value": "asc"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page_token",
+                    "value": "={{ $response.body.next_page_token }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.next_page_token }}",
+              "limitPagesFetched": false,
+              "requestInterval": 250
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "siCredAlpaca0001",
+          "name": "Stock Intel Alpaca (headers)"
+        }
+      }
+    },
+    {
+      "id": "b6666666-6666-4666-8666-666666666666",
+      "name": "Flatten repaired bars",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Alpaca minute bars -> bar_versions rows. bar_end = bar start t + 1 min (matches the recorder).\n// available_at/received_at default to now() in the DB: recovered data keeps its real recovery time,\n// it is never backdated as if the live agent saw it. Only bars Alpaca actually returns are inserted.\nconst plan = $('Plan repair').first().json;\nconst sid = plan.session_id;\nconst rows = [];\nfor (const page of $input.all()) {\n  const bars = (page.json && page.json.bars) || {};\n  for (const [sym, arr] of Object.entries(bars)) {\n    for (const b of arr) {\n      const barEnd = new Date(new Date(b.t).getTime() + 60000).toISOString();\n      rows.push({ session_id: sid, symbol: sym, bar_end: barEnd, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v, vwap: (b.vw ?? null), trade_count: (b.n ?? null) });\n    }\n  }\n}\nreturn [{ json: { rows, fetched: rows.length } }];"
+      }
+    },
+    {
+      "id": "b7777777-7777-4777-8777-777777777777",
+      "name": "Insert missing + close job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ins AS (\n  INSERT INTO intraday.bar_versions\n    (session_id, symbol, bar_end, open, high, low, close, volume, vwap, trade_count, feed, is_correction)\n  SELECT nullif(x.session_id,'')::uuid, x.symbol, x.bar_end::timestamptz, x.open, x.high, x.low, x.close,\n         x.volume, x.vwap, x.trade_count, 'iex', false\n  FROM jsonb_to_recordset($1::jsonb) AS x(session_id text, symbol text, bar_end text, open numeric, high numeric,\n         low numeric, close numeric, volume bigint, vwap numeric, trade_count int)\n  ON CONFLICT (symbol, bar_end, bar_interval, version) DO NOTHING\n  RETURNING 1\n),\ncnt AS (SELECT count(*) AS n FROM ins),\nupd AS (\n  UPDATE intraday.ingestion_jobs\n     SET status = 'done', completed_at = now(),\n         cursor_state = jsonb_build_object('repaired', (SELECT n FROM cnt), 'window_end', $3::timestamptz)\n   WHERE id = $2::bigint\n  RETURNING id\n)\nSELECT (SELECT n FROM cnt) AS repaired, (SELECT id FROM upd) AS job_id;",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.rows), $('Claim gap-repair lease').first().json.id, $('Plan repair').first().json.end] }}",
+          "queryBatching": "transaction"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "b8888888-8888-4888-8888-888888888888",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2256,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const plan = $('Plan repair').first().json;\nconst f = $('Flatten repaired bars').first().json;\nreturn [{ json: { ok: true, symbols: plan.symbols.length, missing_detected: plan.total_missing, fetched: f.fetched, repaired: Number($json.repaired || 0), job_id: $json.job_id || null } }];"
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Trigger\n\nEvery 5 minutes. Scans the current session for bar gaps and repairs them from the same feed. Quiet with no manifest. Covers OPEN..CLOSE+30m.",
+        "width": 304,
+        "height": 416,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Detect + plan\n\nBuild the expected minute grid per session symbol and diff against bar_versions. A no-trade minute is not a transport gap, so nothing is fabricated. Plan emits one bounded window, or zero items when there is nothing to do.",
+        "width": 576,
+        "height": 416,
+        "color": 5
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Claim + fetch + append\n\nLease-fenced so two runs cannot repair the same window. Fetch the gap window from Alpaca, insert only the missing bars (ON CONFLICT DO NOTHING); recovered bars keep their real available_at, never backdated. Close the job with the repaired count.",
+        "width": 1584,
+        "height": 416,
+        "color": 3
+      },
+      "id": "zone-03",
+      "name": "zone-03",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        848,
+        -208
+      ]
+    }
+  ],
+  "connections": {
+    "Every 5 minutes": {
+      "main": [
+        [
+          {
+            "node": "Find gaps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find gaps": {
+      "main": [
+        [
+          {
+            "node": "Plan repair",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan repair": {
+      "main": [
+        [
+          {
+            "node": "Claim gap-repair lease",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim gap-repair lease": {
+      "main": [
+        [
+          {
+            "node": "Fetch Alpaca bars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Alpaca bars": {
+      "main": [
+        [
+          {
+            "node": "Flatten repaired bars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten repaired bars": {
+      "main": [
+        [
+          {
+            "node": "Insert missing + close job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert missing + close job": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

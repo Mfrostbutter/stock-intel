@@ -1,0 +1,35 @@
+{
+  "_comment": "Pinned n8n ids. The shipped workflow JSON carries these, so `n8n import:workflow` and `import:credentials` produce the same ids on every install and the cross-references keep working without a click.",
+  "workflows": {
+    "stock-intel: Daily": "siDaily000000001",
+    "stock-intel: Backfill": "siBackfill000001",
+    "stock-intel: Collect-Prices": "siPrices00000001",
+    "stock-intel: Compute-Indicators": "siIndicators0001",
+    "stock-intel: Collect-News": "siNews0000000001",
+    "stock-intel: Collect-Earnings": "siEarnings000001",
+    "stock-intel: Collect-Fundamentals": "siFundamentals01",
+    "stock-intel: Collect-Signals": "siSignals0000001",
+    "stock-intel: Entry Signals": "siEntrySignals01",
+    "stock-intel: Intraday Session Prep (WF-01)": "siIntradayPrep01",
+    "stock-intel: Intraday Health (WF-07)": "siIntradayHlth01",
+    "stock-intel: Intraday Gap Repair (WF-08)": "siIntradayGap001"
+  },
+  "activate": [
+    "stock-intel: Backfill",
+    "stock-intel: Daily",
+    "stock-intel: Entry Signals"
+  ],
+  "activate_intraday": [
+    "stock-intel: Intraday Session Prep (WF-01)",
+    "stock-intel: Intraday Health (WF-07)",
+    "stock-intel: Intraday Gap Repair (WF-08)"
+  ],
+  "credentials": {
+    "Stock Intel Postgres (stocks_n8n)": {"id": "siCredPostgres01", "type": "postgres"},
+    "Stock Intel Alpaca (headers)": {"id": "siCredAlpaca0001", "type": "httpCustomAuth"},
+    "Stock Intel Finnhub (query token)": {"id": "siCredFinnhub001", "type": "httpQueryAuth"},
+    "Stock Intel Alpha Vantage (query apikey)": {"id": "siCredAlphaVan01", "type": "httpQueryAuth"},
+    "Stock Intel App Webhook (header)": {"id": "siCredWebhook001", "type": "httpHeaderAuth"},
+    "Stock Intel Telegram": {"id": "siCredTelegram01", "type": "telegramApi"}
+  }
+}

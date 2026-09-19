@@ -1,0 +1,346 @@
+{
+  "id": "siSignals0000001",
+  "name": "stock-intel: Collect-Signals",
+  "tags": [
+    "stock-intel",
+    "daily",
+    "subworkflow"
+  ],
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "f2000000-0000-4000-8000-000000000001",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "f2000000-0000-4000-8000-000000000002",
+      "name": "One item per ticker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ETFs have no insiders or analyst coverage. Insider window = 120 days back.\nconst ctx = $input.first().json;\nconst from = new Date(new Date(ctx.as_of + 'T00:00:00Z').getTime() - 120 * 86400000).toISOString().slice(0, 10);\nreturn ctx.tickers.filter(t => !(ctx.benchmarks || []).includes(t)).map(t => ({ json: { ticker: t, run_id: ctx.run_id, from, to: ctx.as_of } }));"
+      }
+    },
+    {
+      "id": "f2000000-0000-4000-8000-000000000003",
+      "name": "Finnhub insiders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        656,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "url": "https://finnhub.io/api/v1/stock/insider-transactions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $('One item per ticker').item.json.ticker }}"
+            },
+            {
+              "name": "from",
+              "value": "={{ $('One item per ticker').item.json.from }}"
+            },
+            {
+              "name": "to",
+              "value": "={{ $('One item per ticker').item.json.to }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1100
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "siCredFinnhub001",
+          "name": "Stock Intel Finnhub (query token)"
+        }
+      }
+    },
+    {
+      "id": "f2000000-0000-4000-8000-000000000004",
+      "name": "Finnhub recommendations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        992,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "url": "https://finnhub.io/api/v1/stock/recommendation",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $('One item per ticker').item.json.ticker }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1100
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "siCredFinnhub001",
+          "name": "Stock Intel Finnhub (query token)"
+        }
+      }
+    },
+    {
+      "id": "f2000000-0000-4000-8000-000000000005",
+      "name": "Flatten signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Both HTTP nodes keep one item per ticker in request order. Insider rows keyed by SEC accession + transaction detail.\nconst ctx = $('When called').first().json;\nconst reqs = $('One item per ticker').all();\nconst ins = $('Finnhub insiders').all(), recs = $input.all();\nconst num = (v) => (v == null || v === '' || !isFinite(Number(v)) ? null : Number(v));\nconst body = (it) => { let b = it.json.body; if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { b = null; } } return b; };\nconst code = (it) => Number(it.json.statusCode) || null;\nconst insiders = [], recRows = [], usage = [], seen = {}, seenRec = new Set();\nreqs.forEach((rq, i) => {\n  const t = rq.json.ticker;\n  const a = ins[i], b = recs[i];\n  const ab = a ? body(a) : null, bb = b ? body(b) : null;\n  const aOk = a && code(a) === 200 && ab && Array.isArray(ab.data);\n  const bOk = b && code(b) === 200 && Array.isArray(bb);\n  usage.push({ ticker: t, endpoint: 'stock/insider-transactions', status: aOk ? 'ok' : (a && code(a) === 429 ? 'quota_skip' : 'error'), http_code: a ? code(a) : null });\n  usage.push({ ticker: t, endpoint: 'stock/recommendation', status: bOk ? 'ok' : (b && code(b) === 429 ? 'quota_skip' : 'error'), http_code: b ? code(b) : null });\n  if (aOk) for (const x of ab.data) {\n    const chg = num(x.change), px = num(x.transactionPrice), c = x.transactionCode || '';\n    const key = [x.id || 'na', t, (x.name || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 24), x.transactionDate || '', c, chg ?? '', px ?? '', x.isDerivative ? 'd' : 'n'].join('-');\n    // A filing can list the same transaction twice; number repeats so both rows survive the upsert.\n    seen[key] = (seen[key] || 0) + 1;\n    insiders.push({ id: 'fh-' + key + (seen[key] > 1 ? '-' + seen[key] : ''), ticker: t, filed_at: x.filingDate || null, tx_date: x.transactionDate || null, insider: x.name || null,\n      tx_type: c === 'P' ? 'P' : (c === 'S' ? 'S' : 'other'), code: c || null, shares: chg == null ? null : Math.round(chg), price: px,\n      value: chg != null && px != null ? Math.round(Math.abs(chg) * px * 100) / 100 : null, derivative: !!x.isDerivative });\n  }\n  if (bOk) for (const x of bb) if (x.period && !seenRec.has(t + x.period) && seenRec.add(t + x.period)) recRows.push({ ticker: t, as_of: x.period, strong_buy: num(x.strongBuy), buy: num(x.buy), hold: num(x.hold), sell: num(x.sell), strong_sell: num(x.strongSell) });\n});\nconst failed = usage.filter(u => u.status !== 'ok');\nconst failedT = [...new Set(failed.map(u => u.ticker))];\nreturn [{ json: { run_id: ctx.run_id, as_of: ctx.as_of, insiders, recs: recRows, usage, calls: usage.length, insider_rows: insiders.length, rec_rows: recRows.length, failed: failed.length, failed_tickers: failedT } }];"
+      }
+    },
+    {
+      "id": "f2000000-0000-4000-8000-000000000006",
+      "name": "Upsert signals",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1584,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intel.insider_tx (id, ticker, filed_at, tx_date, insider, tx_type, code, shares, price, value, derivative, source, updated_at)\nSELECT id, ticker, filed_at, tx_date, insider, tx_type, code, shares, price, value, derivative, 'finnhub', now()\nFROM jsonb_to_recordset($1::jsonb) AS x(id text, ticker text, filed_at date, tx_date date, insider text, tx_type text, code text, shares bigint, price numeric, value numeric, derivative boolean)\nON CONFLICT (id) DO UPDATE SET filed_at = EXCLUDED.filed_at, tx_date = EXCLUDED.tx_date, insider = EXCLUDED.insider, tx_type = EXCLUDED.tx_type, code = EXCLUDED.code, shares = EXCLUDED.shares, price = EXCLUDED.price, value = EXCLUDED.value, derivative = EXCLUDED.derivative, source = EXCLUDED.source, updated_at = now();\nINSERT INTO intel.analyst_recs (ticker, as_of, strong_buy, buy, hold, sell, strong_sell, source, updated_at)\nSELECT ticker, as_of, strong_buy, buy, hold, sell, strong_sell, 'finnhub', now()\nFROM jsonb_to_recordset($2::jsonb) AS r(ticker text, as_of date, strong_buy int, buy int, hold int, sell int, strong_sell int)\nON CONFLICT (ticker, as_of) DO UPDATE SET strong_buy = EXCLUDED.strong_buy, buy = EXCLUDED.buy, hold = EXCLUDED.hold, sell = EXCLUDED.sell, strong_sell = EXCLUDED.strong_sell, source = EXCLUDED.source, updated_at = now();\nINSERT INTO intel.api_usage (run_id, source, endpoint, ticker, status, http_code)\nSELECT $3::uuid, 'finnhub', endpoint, ticker, status, http_code\nFROM jsonb_to_recordset($4::jsonb) AS u(ticker text, endpoint text, status text, http_code int);",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.insiders), JSON.stringify($json.recs), $json.run_id, JSON.stringify($json.usage)] }}",
+          "queryBatching": "transaction"
+        }
+      }
+    },
+    {
+      "id": "f2000000-0000-4000-8000-000000000007",
+      "name": "Return counts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const f = $('Flatten signals').first().json;\nreturn [{ json: { source: 'signals', insider_rows: f.insider_rows, rec_rows: f.rec_rows, calls: f.calls, failed: f.failed, failed_tickers: f.failed_tickers, ok: f.calls > 0 && f.failed < f.calls } }];"
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Input\n\nCalled with {run_id, as_of, tickers[], benchmarks[]}.",
+        "width": 304,
+        "height": 384,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Fan out + fetch\n\nOne item per non-ETF ticker, then the two calls in series. neverError with the full response: a bad reply becomes a ledger row, not a crash.",
+        "width": 912,
+        "height": 384,
+        "color": 3
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Normalize + store\n\nRows matched back to tickers by request order, then one transaction: insiders, recs, ledger.",
+        "width": 576,
+        "height": 384,
+        "color": 5
+      },
+      "id": "zone-03",
+      "name": "zone-03",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1184,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Return\n\nRow counts and failed tickers go back to Daily for the run status.",
+        "width": 304,
+        "height": 384,
+        "color": 5
+      },
+      "id": "zone-04",
+      "name": "zone-04",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1776,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Collect-Signals: source + rules\n\nTwo Finnhub calls per non-ETF ticker, 1.1 s apart, about two minutes.\n**stock/insider-transactions** (SEC Form 4, 120 days back): one intel.insider_tx row per transaction, keyed by accession + detail so a re-pull updates in place. tx_type keeps P (open-market buy) / S (sale) / other; the SEC code and the derivative flag are stored so the score can ignore option exercises, awards, gifts and tax withholding.\n**stock/recommendation**: monthly buy / hold / sell counts, one intel.analyst_recs row per (ticker, month), upserted.\nA ticker whose call fails keeps its old rows. Every call lands in intel.api_usage.",
+        "width": 960,
+        "height": 288,
+        "color": 7
+      },
+      "id": "zone-panel-1",
+      "name": "zone-panel-1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -480
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "One item per ticker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per ticker": {
+      "main": [
+        [
+          {
+            "node": "Finnhub insiders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finnhub insiders": {
+      "main": [
+        [
+          {
+            "node": "Finnhub recommendations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finnhub recommendations": {
+      "main": [
+        [
+          {
+            "node": "Flatten signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten signals": {
+      "main": [
+        [
+          {
+            "node": "Upsert signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert signals": {
+      "main": [
+        [
+          {
+            "node": "Return counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

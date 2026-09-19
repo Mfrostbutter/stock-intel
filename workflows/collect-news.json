@@ -1,0 +1,516 @@
+{
+  "id": "siNews0000000001",
+  "name": "stock-intel: Collect-News",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "7a8b9c0d-1e2f-4a3b-9c4d-5e6f7a8b9c0d",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "8b9c0d1e-2f3a-4b4c-8d5e-6f7a8b9c0d1e",
+      "name": "One item per ticker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const ctx = $input.first().json;\nconst to = ctx.as_of;\nconst from = new Date(new Date(to + 'T00:00:00Z').getTime() - 3 * 86400000).toISOString().slice(0, 10);\nreturn ctx.tickers.filter(t => !(ctx.benchmarks || []).includes(t)).map(t => ({ json: { ticker: t, from, to, run_id: ctx.run_id } }));"
+      }
+    },
+    {
+      "id": "9c0d1e2f-3a4b-4c5d-9e6f-7a8b9c0d1e2f",
+      "name": "Finnhub company-news",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        640,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "url": "https://finnhub.io/api/v1/company-news",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $json.ticker }}"
+            },
+            {
+              "name": "from",
+              "value": "={{ $json.from }}"
+            },
+            {
+              "name": "to",
+              "value": "={{ $json.to }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1100
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "siCredFinnhub001",
+          "name": "Stock Intel Finnhub (query token)"
+        }
+      }
+    },
+    {
+      "id": "0d1e2f3a-4b5c-4d6e-8f7a-8b9c0d1e2f3a",
+      "name": "Flatten Finnhub",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// One full response per ticker request. Ticker = the queried symbol; usage = one ledger row per call.\nconst ctx = $('When called').first().json;\nconst reqs = $('One item per ticker').all();\nconst byId = new Map(), usage = [];\n$input.all().forEach((it, i) => {\n  const pi = Array.isArray(it.pairedItem) ? it.pairedItem[0] : it.pairedItem;\n  const idx = (pi != null && typeof pi === 'object' ? pi.item : pi) ?? i;\n  const ticker = reqs[idx] ? reqs[idx].json.ticker : null;\n  const code = Number(it.json.statusCode) || null;\n  let body = it.json.body;\n  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }\n  const ok = code === 200 && Array.isArray(body) && !!ticker;\n  usage.push({ ticker, status: ok ? 'ok' : (code === 429 ? 'quota_skip' : 'error'), http_code: code, n: ok ? body.length : 0 });\n  if (!ok) return;\n  for (const a of body) {\n    if (!a || !a.id || !a.headline) continue;\n    const id = 'fh-' + ticker + '-' + a.id;\n    byId.set(id, { id, ticker, published_at: new Date(a.datetime * 1000).toISOString(), source: 'finnhub', headline: String(a.headline).slice(0, 500), url: a.url, summary: String(a.summary || '').slice(0, 2000), sentiment: null, sentiment_src: null });\n  }\n});\nconst rows = [...byId.values()];\nconst failed = usage.filter(u => u.status !== 'ok');\nreturn [{ json: { run_id: ctx.run_id, rows, count: rows.length, usage, calls: usage.length, failed: failed.length, failed_tickers: failed.map(u => u.ticker) } }];"
+      }
+    },
+    {
+      "id": "1e2f3a4b-5c6d-4e7f-9a8b-9c0d1e2f3a4b",
+      "name": "Upsert Finnhub articles",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1280,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intel.news_articles (id, ticker, published_at, source, headline, url, summary, sentiment, sentiment_src)\nSELECT id, ticker, published_at::timestamptz, source, headline, url, summary, sentiment, sentiment_src\nFROM jsonb_to_recordset($1::jsonb) AS x(id text, ticker text, published_at text, source text, headline text, url text, summary text, sentiment numeric, sentiment_src text)\nON CONFLICT (id) DO NOTHING;\nINSERT INTO intel.api_usage (run_id, source, endpoint, ticker, status, http_code)\nSELECT $2::uuid, 'finnhub', 'company-news', ticker, status, http_code\nFROM jsonb_to_recordset($3::jsonb) AS u(ticker text, status text, http_code int);",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.rows), $json.run_id, JSON.stringify($json.usage)] }}",
+          "queryBatching": "transaction"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "2f3a4b5c-6d7e-4f8a-8b9c-0d1e2f3a4b5c",
+      "name": "AV query plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        260
+      ],
+      "parameters": {
+        "jsCode": "// Alpha Vantage: 25 calls/day and a multi-ticker query is AND, not OR.\n// Plan: 4 topic calls (broad coverage), per-ticker calls for holdings, and a rotating slice of the rest.\nconst ctx = $input.first().json;\nconst skip = new Set(ctx.benchmarks || []);\nconst all = ctx.tickers.filter(t => !skip.has(t));\nconst holdings = ctx.holdings || [];\nconst rest = all.filter(t => !holdings.includes(t));\nconst from = new Date(new Date(ctx.as_of + 'T00:00:00Z').getTime() - 3 * 86400000);\nconst time_from = from.toISOString().slice(0, 10).replace(/-/g, '') + 'T0000';\nconst base = 'https://www.alphavantage.co/query?function=NEWS_SENTIMENT&sort=LATEST&limit=1000&time_from=' + time_from;\nconst budget = Number(ctx.av_budget || 22);\nconst out = [];\nfor (const topic of ['technology', 'manufacturing', 'energy_transportation', 'financial_markets']) out.push({ json: { kind: 'topic', key: topic, url: base + '&topics=' + topic, run_id: ctx.run_id } });\nfor (const t of holdings) out.push({ json: { kind: 'ticker', key: t, url: base + '&tickers=' + t, run_id: ctx.run_id } });\nconst spare = Math.max(0, budget - out.length);\nconst day = Math.floor(new Date(ctx.as_of + 'T00:00:00Z').getTime() / 86400000);\nconst start = rest.length ? (day * spare) % rest.length : 0;\nfor (let i = 0; i < Math.min(spare, rest.length); i++) { const t = rest[(start + i) % rest.length]; out.push({ json: { kind: 'ticker', key: t, url: base + '&tickers=' + t, run_id: ctx.run_id } }); }\nreturn out;"
+      }
+    },
+    {
+      "id": "3a4b5c6d-7e8f-4a9b-9c0d-1e2f3a4b5c6d",
+      "name": "Alpha Vantage NEWS_SENTIMENT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        640,
+        260
+      ],
+      "retryOnFail": false,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": false,
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "siCredAlphaVan01",
+          "name": "Stock Intel Alpha Vantage (query apikey)"
+        }
+      }
+    },
+    {
+      "id": "4b5c6d7e-8f9a-4b0c-8d1e-2f3a4b5c6d7e",
+      "name": "Flatten AV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        260
+      ],
+      "parameters": {
+        "jsCode": "// One row per (article, ticker) with AV's per-ticker sentiment. relevance < 0.1 is noise.\nconst ctx = $('When called').first().json;\nconst want = new Set(ctx.tickers);\nconst rows = [];\nlet calls = 0, throttled = 0, errors = 0;\nconst plan = $('AV query plan').all(), usage = [];\nconst h = (s) => { let x = 5381; for (const c of s) x = ((x << 5) + x + c.charCodeAt(0)) >>> 0; return x.toString(36); };\n$input.all().forEach((it, i) => {\n  calls++;\n  const j = it.json || {};\n  const key = plan[i] ? plan[i].json.key : null;\n  if (j.Information || j.Note) { throttled++; usage.push({ ticker: key, status: 'quota_skip', http_code: 200 }); return; }\n  if (!Array.isArray(j.feed)) { errors++; usage.push({ ticker: key, status: 'error', http_code: null }); return; }\n  usage.push({ ticker: key, status: 'ok', http_code: 200 });\n  for (const a of j.feed || []) {\n    const ts = a.time_published; // YYYYMMDDTHHMMSS\n    const iso = ts ? `${ts.slice(0,4)}-${ts.slice(4,6)}-${ts.slice(6,8)}T${ts.slice(9,11)}:${ts.slice(11,13)}:${ts.slice(13,15)}Z` : null;\n    for (const s of a.ticker_sentiment || []) {\n      if (!want.has(s.ticker) || Number(s.relevance_score) < 0.1) continue;\n      rows.push({ id: 'av-' + s.ticker + '-' + h(a.url || a.title), ticker: s.ticker, published_at: iso, source: 'alphavantage', headline: String(a.title || '').slice(0, 500), url: a.url, summary: String(a.summary || '').slice(0, 2000), sentiment: Math.round(Number(s.ticker_sentiment_score) * 1000) / 1000, sentiment_src: 'av', raw: { relevance: s.relevance_score, overall: a.overall_sentiment_score, src: a.source } });\n    }\n  }\n});\n// Same article can arrive from a topic call and a ticker call: keep one row per id (highest relevance).\nconst byId = new Map();\nfor (const r of rows) { const prev = byId.get(r.id); if (!prev || Number(r.raw.relevance) > Number(prev.raw.relevance)) byId.set(r.id, r); }\nconst uniq = [...byId.values()];\nreturn [{ json: { run_id: ctx.run_id, rows: uniq, count: uniq.length, raw_count: rows.length, calls, throttled, errors, usage } }];"
+      }
+    },
+    {
+      "id": "5c6d7e8f-9a0b-4c1d-9e2f-3a4b5c6d7e8f",
+      "name": "Upsert AV articles",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1280,
+        260
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intel.news_articles (id, ticker, published_at, source, headline, url, summary, sentiment, sentiment_src, raw)\nSELECT id, ticker, published_at::timestamptz, source, headline, url, summary, sentiment, sentiment_src, raw\nFROM jsonb_to_recordset($1::jsonb) AS x(id text, ticker text, published_at text, source text, headline text, url text, summary text, sentiment numeric, sentiment_src text, raw jsonb)\nON CONFLICT (id) DO UPDATE SET sentiment = EXCLUDED.sentiment, raw = EXCLUDED.raw;\nINSERT INTO intel.api_usage (run_id, source, endpoint, ticker, status, http_code)\nSELECT $2::uuid, 'alphavantage', 'NEWS_SENTIMENT', ticker, status, http_code\nFROM jsonb_to_recordset($3::jsonb) AS u(ticker text, status text, http_code int);",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.rows), $json.run_id, JSON.stringify($json.usage)] }}",
+          "queryBatching": "transaction"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "6d7e8f9a-0b1c-4d2e-8f3a-4b5c6d7e8f9a",
+      "name": "Wait for both",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1600,
+        0
+      ],
+      "parameters": {
+        "mode": "chooseBranch",
+        "chooseBranchMode": "waitForAll",
+        "output": "empty"
+      }
+    },
+    {
+      "id": "7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b",
+      "name": "Aggregate sentiment_daily",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1936,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intel.sentiment_daily (ticker, as_of, news_score, news_count)\nSELECT ticker, $2::date,\n       round(avg(sentiment) FILTER (WHERE sentiment IS NOT NULL)::numeric, 3),\n       count(*)\nFROM intel.news_articles\nWHERE ticker = ANY($1::text[]) AND published_at >= ($2::date - 7) AND published_at < ($2::date + 1)\nGROUP BY ticker\nON CONFLICT (ticker, as_of) DO UPDATE SET news_score = EXCLUDED.news_score, news_count = EXCLUDED.news_count;",
+        "options": {
+          "queryReplacement": "={{ ['{' + $('When called').first().json.tickers.join(',') + '}', $('When called').first().json.as_of] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "8f9a0b1c-2d3e-4f4a-8b5c-6d7e8f9a0b1c",
+      "name": "Return counts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2272,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const fh = $('Flatten Finnhub').first().json, av = $('Flatten AV').first().json;\nreturn [{ json: { source: 'news', finnhub_rows: fh.count, finnhub_calls: fh.calls, finnhub_failed: fh.failed, finnhub_failed_tickers: fh.failed_tickers, av_rows: av.count, av_calls: av.calls, av_throttled: av.throttled, av_errors: av.errors, ok: fh.calls > 0 && fh.failed < fh.calls } }];"
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Input\n\nCalled with {run_id, as_of, tickers[], benchmarks[]}. ETFs are skipped.",
+        "width": 304,
+        "height": 704,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Fan out\n\nTop: one item per ticker. Bottom: Alpha Vantage plan, 4 topic calls + holdings + a rotating slice.",
+        "width": 304,
+        "height": 704,
+        "color": 5
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Fetch\n\nRate-limited HTTP calls. neverError on: a bad reply becomes data, not a crash. Finnhub returns the full response so the status code reaches the ledger.",
+        "width": 304,
+        "height": 704,
+        "color": 3
+      },
+      "id": "zone-03",
+      "name": "zone-03",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        576,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Normalize\n\nRows for intel.news_articles with stable ids so re-runs never duplicate.",
+        "width": 304,
+        "height": 704,
+        "color": 5
+      },
+      "id": "zone-04",
+      "name": "zone-04",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        896,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Store\n\nUpserts plus one intel.api_usage row per call: ticker or topic, ok / quota_skip / error, http code.",
+        "width": 304,
+        "height": 704,
+        "color": 3
+      },
+      "id": "zone-05",
+      "name": "zone-05",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Aggregate\n\nMerge waits for both branches, then 7-day sentiment per ticker goes to intel.sentiment_daily and counts return to the caller.",
+        "width": 912,
+        "height": 704,
+        "color": 5
+      },
+      "id": "zone-06",
+      "name": "zone-06",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1536,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Collect-News: sources + rules\n\n**Finnhub company-news** (top row): headlines per ticker for the 3 days ending as_of, 1.1 s between calls (60/min free tier). No sentiment on free; rows land with sentiment NULL. id = fh-<ticker>-<finnhub id>, ticker = the queried symbol, so a shared article is kept once per ticker.\n**Alpha Vantage NEWS_SENTIMENT** (bottom row): 25 calls/day and a multi-ticker query means ALL tickers (AND), so: 4 topic calls (technology, manufacturing, energy_transportation, financial_markets) + one call per holding + a rotating slice of the rest, 22 calls total. Per-ticker sentiment in [-1, 1]; relevance < 0.1 is dropped. id = av-<ticker>-<hash(url)>. A throttle note is logged as quota_skip, never a crash.\n**Aggregate**: after both branches, one SQL rolls the last 7 days of intel.news_articles into intel.sentiment_daily (mean sentiment, article count). Benchmarks (ETFs) never get news.",
+        "width": 960,
+        "height": 336,
+        "color": 7
+      },
+      "id": "zone-panel-1",
+      "name": "zone-panel-1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -592
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "One item per ticker",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AV query plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per ticker": {
+      "main": [
+        [
+          {
+            "node": "Finnhub company-news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finnhub company-news": {
+      "main": [
+        [
+          {
+            "node": "Flatten Finnhub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Finnhub": {
+      "main": [
+        [
+          {
+            "node": "Upsert Finnhub articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Finnhub articles": {
+      "main": [
+        [
+          {
+            "node": "Wait for both",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alpha Vantage NEWS_SENTIMENT": {
+      "main": [
+        [
+          {
+            "node": "Flatten AV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten AV": {
+      "main": [
+        [
+          {
+            "node": "Upsert AV articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert AV articles": {
+      "main": [
+        [
+          {
+            "node": "Wait for both",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Wait for both": {
+      "main": [
+        [
+          {
+            "node": "Aggregate sentiment_daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate sentiment_daily": {
+      "main": [
+        [
+          {
+            "node": "Return counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AV query plan": {
+      "main": [
+        [
+          {
+            "node": "Alpha Vantage NEWS_SENTIMENT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "tags": [
+    "stock-intel",
+    "daily",
+    "subworkflow"
+  ]
+}

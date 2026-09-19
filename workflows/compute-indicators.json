@@ -1,0 +1,213 @@
+{
+  "id": "siIndicators0001",
+  "name": "stock-intel: Compute-Indicators",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      "name": "Load price history",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ticker, as_of::text AS as_of, close::float8 AS close, high::float8 AS high, low::float8 AS low, volume::float8 AS volume\nFROM intel.prices_daily\nWHERE ticker = ANY($1::text[]) AND as_of >= ($2::date - 400)\nORDER BY ticker, as_of;",
+        "options": {
+          "queryReplacement": "={{ ['{' + $json.tickers.join(',') + '}', $json.as_of] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+      "name": "Compute",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Technical indicators per ticker. Emits rows for the last days_back sessions.\nconst ctx = $('When called').first().json;\nconst daysBack = Number(ctx.days_back || 5);\nconst byT = {};\nfor (const it of $input.all()) { const r = it.json; (byT[r.ticker] ||= []).push(r); }\n\nconst sma = (a, i, n) => i + 1 < n ? null : a.slice(i - n + 1, i + 1).reduce((s, v) => s + v, 0) / n;\nconst std = (arr) => { const m = arr.reduce((s, v) => s + v, 0) / arr.length; return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length); };\nconst r4 = (v) => v == null || !isFinite(v) ? null : Math.round(v * 10000) / 10000;\n\nconst rows = [];\nfor (const [ticker, hist] of Object.entries(byT)) {\n  const closes = hist.map(h => h.close), highs = hist.map(h => h.high), lows = hist.map(h => h.low), vols = hist.map(h => h.volume);\n  const n = hist.length;\n  // Wilder RSI14 and ATR14, computed incrementally\n  const rsi = new Array(n).fill(null), atr = new Array(n).fill(null);\n  let ag = 0, al = 0, atrv = 0;\n  for (let i = 1; i < n; i++) {\n    const ch = closes[i] - closes[i - 1];\n    const g = Math.max(ch, 0), l = Math.max(-ch, 0);\n    const tr = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1]));\n    if (i <= 14) { ag += g / 14; al += l / 14; atrv += tr / 14; if (i === 14) { rsi[i] = al === 0 ? 100 : 100 - 100 / (1 + ag / al); atr[i] = atrv; } }\n    else { ag = (ag * 13 + g) / 14; al = (al * 13 + l) / 14; atrv = (atrv * 13 + tr) / 14; rsi[i] = al === 0 ? 100 : 100 - 100 / (1 + ag / al); atr[i] = atrv; }\n  }\n  const start = Math.max(0, n - daysBack);\n  for (let i = start; i < n; i++) {\n    const w252 = hist.slice(Math.max(0, i - 251), i + 1);\n    const hi = Math.max(...w252.map(h => h.high)), lo = Math.min(...w252.map(h => h.low));\n    let volz = null;\n    if (i >= 20) { const prev = vols.slice(i - 20, i); const m = prev.reduce((s, v) => s + v, 0) / 20; const sd = std(prev); volz = sd > 0 ? (vols[i] - m) / sd : 0; }\n    rows.push({\n      ticker, as_of: hist[i].as_of,\n      sma20: r4(sma(closes, i, 20)), sma50: r4(sma(closes, i, 50)), sma200: r4(sma(closes, i, 200)),\n      rsi14: r4(rsi[i]), atr14: r4(atr[i]), vol_z20: r4(volz),\n      hi52w: r4(hi), lo52w: r4(lo), pct_from_hi52w: r4((closes[i] - hi) / hi),\n      ret_1d: i >= 1 ? r4(closes[i] / closes[i - 1] - 1) : null,\n      ret_5d: i >= 5 ? r4(closes[i] / closes[i - 5] - 1) : null,\n      ret_20d: i >= 20 ? r4(closes[i] / closes[i - 20] - 1) : null,\n    });\n  }\n}\nreturn [{ json: { run_id: ctx.run_id, rows, count: rows.length, tickers: Object.keys(byT).length } }];"
+      }
+    },
+    {
+      "id": "4d5e6f7a-8b9c-4d0e-9f2a-3b4c5d6e7f8a",
+      "name": "Upsert indicators_daily",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO intel.indicators_daily (ticker, as_of, sma20, sma50, sma200, rsi14, atr14, vol_z20, hi52w, lo52w, pct_from_hi52w, ret_1d, ret_5d, ret_20d)\nSELECT ticker, as_of::date, sma20, sma50, sma200, rsi14, atr14, vol_z20, hi52w, lo52w, pct_from_hi52w, ret_1d, ret_5d, ret_20d\nFROM jsonb_to_recordset($1::jsonb) AS x(ticker text, as_of text, sma20 numeric, sma50 numeric, sma200 numeric, rsi14 numeric, atr14 numeric, vol_z20 numeric, hi52w numeric, lo52w numeric, pct_from_hi52w numeric, ret_1d numeric, ret_5d numeric, ret_20d numeric)\nON CONFLICT (ticker, as_of) DO UPDATE SET sma20 = EXCLUDED.sma20, sma50 = EXCLUDED.sma50, sma200 = EXCLUDED.sma200, rsi14 = EXCLUDED.rsi14, atr14 = EXCLUDED.atr14, vol_z20 = EXCLUDED.vol_z20, hi52w = EXCLUDED.hi52w, lo52w = EXCLUDED.lo52w, pct_from_hi52w = EXCLUDED.pct_from_hi52w, ret_1d = EXCLUDED.ret_1d, ret_5d = EXCLUDED.ret_5d, ret_20d = EXCLUDED.ret_20d;",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.rows)] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "siCredPostgres01",
+          "name": "Stock Intel Postgres (stocks_n8n)"
+        }
+      }
+    },
+    {
+      "id": "5e6f7a8b-9c0d-4e1f-8a3b-4c5d6e7f8a9b",
+      "name": "Return counts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const c = $('Compute').first().json;\nreturn [{ json: { source: 'indicators', rows: c.count, symbols: c.tickers, ok: true } }];"
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Input\n\nCalled with {run_id, as_of, tickers[], days_back}. days_back=5 daily, 600 on backfill.",
+        "width": 304,
+        "height": 464,
+        "color": 4
+      },
+      "id": "zone-01",
+      "name": "zone-01",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Load\n\n400 calendar days of intel.prices_daily per ticker, ordered by date. Enough history for SMA200 and the 52-week range.",
+        "width": 304,
+        "height": 464,
+        "color": 3
+      },
+      "id": "zone-02",
+      "name": "zone-02",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Compute\n\nPure JS, no API calls: SMA 20/50/200, Wilder RSI14 and ATR14, 20-day volume z-score, 52-week high/low and distance from high, 1/5/20-day returns. Emits the last days_back sessions per ticker.",
+        "width": 304,
+        "height": 464,
+        "color": 5
+      },
+      "id": "zone-03",
+      "name": "zone-03",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        576,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Store\n\nUpsert into intel.indicators_daily keyed (ticker, as_of). Returns row and ticker counts to the caller.",
+        "width": 576,
+        "height": 464,
+        "color": 3
+      },
+      "id": "zone-04",
+      "name": "zone-04",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        896,
+        -256
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Load price history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load price history": {
+      "main": [
+        [
+          {
+            "node": "Compute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute": {
+      "main": [
+        [
+          {
+            "node": "Upsert indicators_daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert indicators_daily": {
+      "main": [
+        [
+          {
+            "node": "Return counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "tags": [
+    "stock-intel",
+    "daily",
+    "subworkflow"
+  ]
+}

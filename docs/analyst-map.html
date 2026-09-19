@@ -1,0 +1,455 @@
+<title>Stock Intel Analyst Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #f6f6f9;
+    --surface: #ffffff;
+    --surface-2: #f2f3f7;
+    --line: #e3e5ec;
+    --line-strong: #c9cdd8;
+    --ink: #1f2328;
+    --ink-2: #57606a;
+    --ink-3: #8b929e;
+    --accent: #4f46e5;
+    --accent-2: #3730a3;
+    --accent-tint: #eef2ff;
+    --accent-line: #c7d2fe;
+    --code-fill: #eef0f5;
+    --code-ink: #3b4352;
+    --gate-fill: #e3f6ea;
+    --gate-ink: #15703d;
+    --gate-line: #a7dcb8;
+    --risk-fill: #fdecec;
+    --risk-ink: #b42323;
+    --risk-line: #f3b9b9;
+    --warn-fill: #fff4dd;
+    --warn-ink: #8a5a00;
+    --n8n-word: #040506;
+    --shadow: 0 1px 2px rgba(31,35,40,.05), 0 1px 3px rgba(31,35,40,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0f1117; --surface: #171a22; --surface-2: #1e2230; --line: #2a2f3d; --line-strong: #3a4052;
+      --ink: #e8eaf0; --ink-2: #aab1bf; --ink-3: #737b8c; --accent: #8b85f5; --accent-2: #b3aef8;
+      --accent-tint: #23264a; --accent-line: #3f3f8f; --code-fill: #232838; --code-ink: #c3c9d6;
+      --gate-fill: #16301f; --gate-ink: #7fd39a; --gate-line: #2c5a3a; --risk-fill: #3a1c1c; --risk-ink: #f09a9a;
+      --risk-line: #6b2b2b; --warn-fill: #3a2e14; --warn-ink: #f0c36a; --n8n-word: #ffffff;
+      --shadow: 0 1px 2px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0f1117; --surface: #171a22; --surface-2: #1e2230; --line: #2a2f3d; --line-strong: #3a4052;
+    --ink: #e8eaf0; --ink-2: #aab1bf; --ink-3: #737b8c; --accent: #8b85f5; --accent-2: #b3aef8;
+    --accent-tint: #23264a; --accent-line: #3f3f8f; --code-fill: #232838; --code-ink: #c3c9d6;
+    --gate-fill: #16301f; --gate-ink: #7fd39a; --gate-line: #2c5a3a; --risk-fill: #3a1c1c; --risk-ink: #f09a9a;
+    --risk-line: #6b2b2b; --warn-fill: #3a2e14; --warn-ink: #f0c36a; --n8n-word: #ffffff;
+    --shadow: 0 1px 2px rgba(0,0,0,.4);
+  }
+
+  body { background: var(--ground); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px; line-height: 1.45; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; }
+  .top { max-width: 1600px; margin: 0 auto; padding: 22px 24px 8px; display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+  .top h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .top p { margin: 0; color: var(--ink-2); font-size: 13px; }
+  .top .actions { margin-left: auto; display: flex; gap: 8px; }
+  button { font: inherit; font-size: 13px; font-weight: 500; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); cursor: pointer; box-shadow: var(--shadow); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .status { font-size: 12px; color: var(--ink-3); align-self: center; min-width: 120px; }
+  .board { max-width: 1600px; margin: 8px auto 40px; padding: 0 24px; overflow-x: auto; }
+  svg.map { display: block; width: 100%; height: auto; min-width: 960px; background: var(--ground); border-radius: 10px; }
+
+  /* SVG roles: every fill and stroke through a token so both themes hold */
+  .t-title { fill: var(--ink); font-family: Inter, sans-serif; font-weight: 700; font-size: 30px; letter-spacing: -0.02em; }
+  .t-sub { fill: var(--ink-2); font-family: Inter, sans-serif; font-weight: 400; font-size: 14px; }
+  .t-eyebrow { fill: var(--ink-3); font-family: Inter, sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 0.12em; }
+  .t-h { fill: var(--ink); font-family: Inter, sans-serif; font-weight: 600; font-size: 14px; }
+  .t-body { fill: var(--ink-2); font-family: Inter, sans-serif; font-weight: 400; font-size: 12px; }
+  .t-body-ink { fill: var(--ink); font-family: Inter, sans-serif; font-weight: 500; font-size: 12px; }
+  .t-mono { fill: var(--ink-2); font-family: "JetBrains Mono", monospace; font-weight: 400; font-size: 11px; }
+  .t-mono-ink { fill: var(--ink); font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 12px; }
+  .t-mono-accent { fill: var(--accent-2); font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 11px; }
+  .t-node { fill: var(--ink); font-family: "JetBrains Mono", monospace; font-weight: 600; font-size: 14px; }
+  .t-node-on { fill: #ffffff; font-family: "JetBrains Mono", monospace; font-weight: 600; font-size: 14px; }
+  .t-stat { fill: var(--ink); font-family: "JetBrains Mono", monospace; font-weight: 600; font-size: 20px; }
+  .t-chip { font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 11px; }
+  .t-tiny { fill: var(--ink-3); font-family: Inter, sans-serif; font-weight: 400; font-size: 11px; }
+
+  .card { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+  .panel { fill: var(--surface-2); stroke: var(--line); stroke-width: 1; }
+  .divider { stroke: var(--line); stroke-width: 1; }
+  .node-code { fill: var(--code-fill); stroke: var(--line-strong); stroke-width: 1; }
+  .node-model { fill: var(--accent); stroke: var(--accent); stroke-width: 1; }
+  .node-gate { fill: var(--gate-fill); stroke: var(--gate-line); stroke-width: 1; }
+  .arrow { stroke: var(--line-strong); stroke-width: 1.5; fill: none; }
+  .arrow-head { fill: var(--line-strong); }
+  .arrow-loop { stroke: var(--risk-ink); stroke-width: 1.5; fill: none; stroke-dasharray: 4 3; }
+  .arrow-loop-head { fill: var(--risk-ink); }
+  .chip-accent { fill: var(--accent-tint); stroke: var(--accent-line); }
+  .chip-accent-t { fill: var(--accent-2); }
+  .chip-code { fill: var(--code-fill); stroke: var(--line-strong); }
+  .chip-code-t { fill: var(--code-ink); }
+  .chip-gate { fill: var(--gate-fill); stroke: var(--gate-line); }
+  .chip-gate-t { fill: var(--gate-ink); }
+  .chip-risk { fill: var(--risk-fill); stroke: var(--risk-line); }
+  .chip-risk-t { fill: var(--risk-ink); }
+  .chip-warn { fill: var(--warn-fill); stroke: var(--warn-fill); }
+  .chip-warn-t { fill: var(--warn-ink); }
+  .dot-code { fill: var(--code-ink); }
+  .dot-model { fill: var(--accent); }
+  .dot-gate { fill: var(--gate-ink); }
+  .n8n-word { fill: var(--n8n-word); }
+  .bracket { stroke: var(--accent-line); stroke-width: 1.5; fill: none; }
+</style>
+
+<div class="top">
+  <div>
+    <h1>Stock Intel Analyst Map</h1>
+    <p>How the analyst is wired: triggers, graph, tools, guardrails and data. Built from the code.</p>
+  </div>
+  <div class="actions">
+    <span class="status" id="status"></span>
+    <button class="primary" id="copy">Copy SVG for Figma</button>
+  </div>
+</div>
+<div class="board"><svg class="map" id="map" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1720" width="1600" height="1720" role="img" aria-label="Structure of the Stock Intel analyst agent"></svg></div>
+
+<script>
+Promise.all([
+  document.fonts.load('500 11px "JetBrains Mono"'), document.fonts.load('600 14px "JetBrains Mono"'),
+  document.fonts.load('400 11px "JetBrains Mono"'), document.fonts.load('400 12px Inter'), document.fonts.load('600 14px Inter'),
+  document.fonts.load('700 30px Inter'), document.fonts.load('500 12px Inter'),
+]).catch(function () {}).then(function () {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById("map");
+  const W = 1600;
+
+  // ---- measurement ------------------------------------------------------
+  const canvas = document.createElement("canvas").getContext("2d");
+  function measure(text, font) { canvas.font = font; return canvas.measureText(text).width; }
+  const F = {
+    mono11: '500 11px "JetBrains Mono", monospace',
+    mono12: '500 12px "JetBrains Mono", monospace',
+    body12: '400 12px Inter, sans-serif',
+    node14: '600 14px "JetBrains Mono", monospace',
+  };
+
+  // ---- primitives -------------------------------------------------------
+  function el(tag, attrs, parent) {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) if (attrs[k] !== undefined && attrs[k] !== null) n.setAttribute(k, attrs[k]);
+    (parent || svg).appendChild(n);
+    return n;
+  }
+  function group(id, parent) { return el("g", { id }, parent); }
+  function rect(p, x, y, w, h, cls, r, extra) { return el("rect", Object.assign({ x, y, width: w, height: h, rx: r == null ? 8 : r, class: cls }, extra || {}), p); }
+  function text(p, x, y, str, cls, anchor) { const t = el("text", { x, y, class: cls, "text-anchor": anchor || "start" }, p); t.textContent = str; return t; }
+  function linesFor(str, maxW, font) {
+    const words = str.split(" "); let line = "", n = 0;
+    for (const w of words) { const t = line ? line + " " + w : w; if (measure(t, font) > maxW && line) { n++; line = w; } else line = t; }
+    return line ? n + 1 : n;
+  }
+  function wrap(p, x, y, str, cls, maxW, font, lh) {
+    // Word-wrap into <text> lines. Returns the y after the last line.
+    const words = str.split(" "); let line = "", cy = y;
+    for (const w of words) {
+      const test = line ? line + " " + w : w;
+      if (measure(test, font) > maxW && line) { text(p, x, cy, line, cls); cy += lh; line = w; } else line = test;
+    }
+    if (line) { text(p, x, cy, line, cls); cy += lh; }
+    return cy;
+  }
+  function chip(p, x, y, label, kind) {
+    const w = Math.ceil(measure(label, F.mono11) * 1.03) + 22, h = 22;
+    rect(p, x, y, w, h, "chip-" + kind, 11);
+    text(p, x + 10, y + 15, label, "t-chip chip-" + kind + "-t");
+    return w;
+  }
+  function chips(p, x, y, items, gap) {
+    let cx = x; for (const [label, kind] of items) { cx += chip(p, cx, y, label, kind) + (gap == null ? 6 : gap); }
+    return cx;
+  }
+  function arrow(p, x1, y1, x2, y2, cls) {
+    el("line", { x1, y1, x2, y2, class: cls || "arrow" }, p);
+    const ang = Math.atan2(y2 - y1, x2 - x1), s = 7;
+    const pts = [[x2, y2], [x2 - s * Math.cos(ang - 0.45), y2 - s * Math.sin(ang - 0.45)], [x2 - s * Math.cos(ang + 0.45), y2 - s * Math.sin(ang + 0.45)]];
+    el("polygon", { points: pts.map(q => q.join(",")).join(" "), class: (cls || "arrow") + "-head" }, p);
+  }
+  function curve(p, d, endX, endY, dir, cls) {
+    el("path", { d, class: cls }, p);
+    const s = 7, a = dir;
+    const pts = [[endX, endY], [endX - s * Math.cos(a - 0.45), endY - s * Math.sin(a - 0.45)], [endX - s * Math.cos(a + 0.45), endY - s * Math.sin(a + 0.45)]];
+    el("polygon", { points: pts.map(q => q.join(",")).join(" "), class: cls + "-head" }, p);
+  }
+  function eyebrow(p, x, y, str) { text(p, x, y, str.toUpperCase(), "t-eyebrow"); }
+
+  // =====================================================================
+  // 1. Header
+  // =====================================================================
+  const M = 48;
+  const gHead = group("Header");
+  text(gHead, M, 64, "Stock Intel analyst agent", "t-title");
+  text(gHead, M, 90, "One LangGraph agent inside the stock-intel app. Reads the intel database, writes a cited analysis for every daily brief. Framework, not advice; nothing here places orders.", "t-sub");
+  chips(gHead, M, 108, [
+    ["LangGraph 1.2.4, pure factory", "code"],
+    ["model: anthropic/claude-sonnet-5", "accent"],
+    ["critic: anthropic/claude-haiku-4.5", "accent"],
+    ["provider: OpenRouter only", "accent"],
+    ["provider.data_collection = deny on every request", "risk"],
+    ["analyst live", "gate"],
+  ]);
+  // legend, right side
+  const lg = group("Legend", gHead);
+  const legendItems = [["code", "code step, deterministic"], ["model", "model call"], ["gate", "gate / effect"]];
+  let lx = W - M;
+  for (let i = legendItems.length - 1; i >= 0; i--) {
+    const [k, label] = legendItems[i];
+    const tw = measure(label, F.body12);
+    lx -= tw; text(lg, lx, 66, label, "t-body"); lx -= 14; el("circle", { cx: lx + 4, cy: 62, r: 5, class: "dot-" + k }, lg); lx -= 22;
+  }
+
+  // =====================================================================
+  // 2. Triggers -> endpoint -> service
+  // =====================================================================
+  let Y = 158;
+  const gTrig = group("Triggers");
+  eyebrow(gTrig, M, Y, "1  ·  How a run starts");
+  Y += 14;
+  const trigH = 128;
+  // three cards: n8n Daily, UI button, then endpoint, then service
+  const c1 = { x: M, w: 330 }, c2 = { x: M + 350, w: 330 }, c3 = { x: M + 730, w: 300 }, c4 = { x: M + 1080, w: W - M - (M + 1080) };
+  rect(gTrig, c1.x, Y, c1.w, trigH, "card");
+  rect(gTrig, c2.x, Y, c2.w, trigH, "card");
+  rect(gTrig, c3.x, Y, c3.w, trigH, "card", 8);
+  rect(gTrig, c4.x, Y, c4.w, trigH, "card");
+
+  // n8n logo placeholder (official mark spliced in at build time)
+  const logo = group("n8n-logo", gTrig);
+  logo.setAttribute("transform", `translate(${c1.x + 18}, ${Y + 16}) scale(0.17)`);
+  logo.innerHTML = "<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M272 64C257.089 64 244.561 53.8018 241.008 40H204.331C196.51 40 189.835 45.6546 188.549 53.3696L187.234 61.2608C185.985 68.7531 182.195 75.2738 176.835 80C182.195 84.7262 185.985 91.2469 187.234 98.7392L188.549 106.63C189.835 114.345 196.51 120 204.331 120H209.008C212.561 106.198 225.089 96 240 96C257.673 96 272 110.327 272 128C272 145.673 257.673 160 240 160C225.089 160 212.56 149.802 209.008 136H204.331C188.688 136 175.338 124.691 172.766 109.261L171.451 101.37C170.165 93.6546 163.49 88 155.669 88H142.992C139.44 101.802 126.911 112 112 112C97.0893 112 84.5605 101.802 81.0081 88H62.9919C59.4395 101.802 46.9107 112 32 112C14.3269 112 0 97.6731 0 80C0 62.3269 14.3269 48 32 48C46.9107 48 59.4395 58.1982 62.9919 72H81.0081C84.5605 58.1982 97.0893 48 112 48C126.911 48 139.44 58.1982 142.992 72H155.669C163.49 72 170.165 66.3454 171.451 58.6304L172.766 50.7392C175.338 35.3092 188.688 24 204.331 24L241.008 24C244.56 10.1982 257.089 0 272 0C289.673 0 304 14.3269 304 32C304 49.6731 289.673 64 272 64ZM272 48C280.837 48 288 40.8366 288 32C288 23.1634 280.837 16 272 16C263.163 16 256 23.1634 256 32C256 40.8366 263.163 48 272 48ZM32 96C40.8366 96 48 88.8366 48 80C48 71.1634 40.8366 64 32 64C23.1634 64 16 71.1634 16 80C16 88.8366 23.1634 96 32 96ZM128 80C128 88.8366 120.837 96 112 96C103.163 96 96 88.8366 96 80C96 71.1634 103.163 64 112 64C120.837 64 128 71.1634 128 80ZM256 128C256 136.837 248.837 144 240 144C231.163 144 224 136.837 224 128C224 119.163 231.163 112 240 112C248.837 112 256 119.163 256 128Z\" fill=\"#EA4B71\"/><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M480.023 69.1834V68.421C485.605 65.6252 491.188 60.7962 491.188 51.2651C491.188 37.5405 479.896 29.2803 464.29 29.2803C448.304 29.2803 436.885 38.0488 436.885 51.5193C436.885 60.6691 442.214 65.6252 448.05 68.421V69.1834C441.579 71.4709 433.84 78.3332 433.84 89.7704C433.84 103.622 445.259 113.28 464.163 113.28C483.068 113.28 494.106 103.622 494.106 89.7704C494.106 78.3332 486.494 71.598 480.023 69.1834ZM464.163 40.9717C470.507 40.9717 475.202 45.0382 475.202 51.9005C475.202 58.7629 470.38 62.8294 464.163 62.8294C457.946 62.8294 452.744 58.7629 452.744 51.9005C452.744 44.9111 457.693 40.9717 464.163 40.9717ZM464.163 101.081C456.804 101.081 450.841 96.3786 450.841 88.3726C450.841 81.129 455.789 75.6645 464.036 75.6645C472.156 75.6645 477.105 81.0019 477.105 88.6267C477.105 96.3786 471.395 101.081 464.163 101.081Z\" class=\"n8n-word\"/><path d=\"M513.68 112.009H529.92V77.5707C529.92 66.2606 536.771 61.3045 544.511 61.3045C552.123 61.3045 558.087 66.3877 558.087 76.8083V112.009H574.327V73.5042C574.327 56.8567 564.684 47.1986 549.586 47.1986C540.07 47.1986 534.741 51.011 530.935 55.9671H529.92L528.524 48.4694H513.68V112.009Z\" class=\"n8n-word\"/><path d=\"M369.92 112.009H353.68V48.4694H368.524L369.92 55.9671H370.935C374.741 51.011 380.07 47.1986 389.586 47.1986C404.684 47.1986 414.327 56.8567 414.327 73.5042V112.009H398.087V76.8083C398.087 66.3877 392.123 61.3045 384.511 61.3045C376.771 61.3045 369.92 66.2606 369.92 77.5707V112.009Z\" class=\"n8n-word\"/>";
+  text(gTrig, c1.x + 18, Y + 66, "Daily workflow, weekdays 06:00 ET", "t-h");
+  wrap(gTrig, c1.x + 18, Y + 86, "Last node “Analyze brief” posts to the app after the report is stored. Header secret, 15 s timeout, continueRegularOutput so a down app never fails the run.", "t-body", c1.w - 36, F.body12, 16);
+
+  text(gTrig, c2.x + 18, Y + 30, "Today screen", "t-h");
+  chips(gTrig, c2.x + 18, Y + 42, [["Analyze / Re-analyze", "accent"]]);
+  wrap(gTrig, c2.x + 18, Y + 86, "Bearer token. Same endpoint, same graph. The panel polls every 5 s while the row is pending or running.", "t-body", c2.w - 36, F.body12, 16);
+
+  text(gTrig, c3.x + 18, Y + 30, "POST /api/reports/{as_of}/analyze", "t-mono-ink");
+  wrap(gTrig, c3.x + 18, Y + 52, "Accepts the bearer or X-Stock-Intel-Secret. Answers 202 with the analysis id at once; the run continues in a worker thread.", "t-body", c3.w - 36, F.body12, 16);
+  chips(gTrig, c3.x + 18, Y + 96, [["mode: daily | question | deep", "code"]]);
+
+  text(gTrig, c4.x + 18, Y + 30, "service.start_analysis", "t-mono-ink");
+  wrap(gTrig, c4.x + 18, Y + 52, "Report must exist. Daily USD cap checked against today’s spend. One run per as_of in flight. Inserts the pending analyses row, loads the prompt set and hashes it, then hands off.", "t-body", c4.w - 36, F.body12, 16);
+  arrow(gTrig, c1.x + c1.w, Y + trigH / 2, c3.x - 2, Y + trigH / 2 - 18);
+  arrow(gTrig, c2.x + c2.w, Y + trigH / 2, c3.x - 2, Y + trigH / 2 + 18);
+  arrow(gTrig, c3.x + c3.w, Y + trigH / 2, c4.x - 2, Y + trigH / 2);
+  Y += trigH + 44;
+
+  // =====================================================================
+  // 3. Graph lane
+  // =====================================================================
+  const gGraph = group("Graph");
+  eyebrow(gGraph, M, Y, "2  ·  The graph  ·  baseline → plan → gather → ground → draft → critique → hitl → persist");
+  Y += 14;
+  const laneH = 324;
+  rect(gGraph, M, Y, W - 2 * M, laneH, "panel", 10);
+  const nodes = [
+    { n: "baseline", k: "code", who: "code", d: "Runs five fixed templates: watchlist, benchmarks, scores for the date, holdings, run footer. Seeds the evidence index and the ticker allow-list. Loads the brief." },
+    { n: "plan", k: "model", who: "analyst_model", d: "Structured WorkPlan: up to 8 tickers to research (holdings, then flags, then movers), brief claims that need a source, one-line focus. Falls back to held + flagged on failure." },
+    { n: "gather", k: "model", who: "analyst_model + tools", d: "Tool-calling loop. Each result is wrapped as <evidence id=… trust=“untrusted”> and added to the index. Stops on DONE, 25 turns, 240 s, or the daily cap." },
+    { n: "ground", k: "code", who: "code", d: "Orders the index: researched tickers first, full payloads while the 90k character budget lasts, excerpts after. The draft may cite this and nothing else." },
+    { n: "draft", k: "model", who: "analyst_model", d: "One structured AnalysisDraft. Every sentence carries cites (evidence ids) and levels (the prices it names). Market read, holdings stances, entries, avoid, questions, gaps." },
+    { n: "critique", k: "code", who: "code + analyst_cheap_model", d: "Citations must exist. Tickers must be on the watchlist. Levels within 15% of a cited level. Critic flags unsupported claims; flagged and unsupported claims are stripped." },
+    { n: "hitl", k: "gate", who: "effect", d: "interrupt() before the write, only when analyst_hitl is on and the mode is deep. Approve or discard from the Today panel. Off for daily runs." },
+    { n: "persist", k: "code", who: "effect", d: "analyses row with output, markdown, tokens, cost, turns. One analysis_sources row per cited id with the payload the model saw. A runs row of kind analyze." },
+  ];
+  const laneX = M + 20, laneW = W - 2 * M - 40, colW = laneW / nodes.length;
+  const nodeY = Y + 50, nodeH = 40, nodeW = colW - 28;
+  nodes.forEach((nd, i) => {
+    const x = laneX + i * colW + 14;
+    const gn = group("node-" + nd.n, gGraph);
+    rect(gn, x, nodeY, nodeW, nodeH, "node-" + nd.k, 8);
+    text(gn, x + nodeW / 2, nodeY + 26, nd.n, nd.k === "model" ? "t-node-on" : "t-node", "middle");
+    text(gn, x + nodeW / 2, nodeY + nodeH + 20, nd.who, "t-mono", "middle");
+    wrap(gn, x, nodeY + nodeH + 44, nd.d, "t-body", nodeW, F.body12, 16);
+    if (i < nodes.length - 1) arrow(gGraph, x + nodeW, nodeY + nodeH / 2, x + colW - 14, nodeY + nodeH / 2);
+  });
+  // retry loop critique -> draft
+  const critX = laneX + 5 * colW + 14, draftX = laneX + 4 * colW + 14;
+  const loopY = nodeY - 22;
+  const d = `M ${critX + nodeW / 2} ${nodeY} C ${critX + nodeW / 2} ${loopY}, ${draftX + nodeW / 2} ${loopY}, ${draftX + nodeW / 2} ${nodeY - 2}`;
+  curve(gGraph, d, draftX + nodeW / 2, nodeY - 2, Math.PI / 2, "arrow-loop");
+  text(gGraph, (critX + draftX + nodeW) / 2, loopY - 4, "redraft once if more than 1/3 of claims are stripped, else status = invalid", "t-tiny", "middle");
+  // outcomes strip along the bottom of the lane
+  const outY = Y + laneH - 56;
+  el("line", { x1: laneX, y1: outY - 12, x2: laneX + laneW, y2: outY - 12, class: "divider" }, gGraph);
+  text(gGraph, laneX, outY + 8, "Outcomes", "t-body-ink");
+  chips(gGraph, laneX + 78, outY - 6, [["ok", "gate"], ["invalid  (parse failed twice or too many claims stripped)", "risk"], ["capped  (turns, wall clock or daily USD)", "warn"], ["discarded  (HITL)", "code"], ["error  (exception, row never stays pending)", "risk"]]);
+  const budgetsLabel = "Budgets: 25 model turns · 30 template calls · 5 free-form SELECTs · 240 s · analyst_daily_cap_usd checked after every turn";
+  text(gGraph, laneX, outY + 34, budgetsLabel, "t-body");
+  Y += laneH + 44;
+
+  // =====================================================================
+  // 4. Tools (left) + Guardrails (right)
+  // =====================================================================
+  const gTools = group("Tools");
+  eyebrow(gTools, M, Y, "3  ·  Tools the model can call  ·  ToolSet over an injected read-only query function");
+  const gGuard = group("Guardrails");
+  const guardX = M + 1020;
+  eyebrow(gGuard, guardX, Y, "4  ·  Guardrails, enforced in code");
+  Y += 14;
+  const toolsW = 960, toolsX = M;
+  const GUARDS = [
+    ["Leaves the box only with deny", "An httpx hook reads every chat body and raises before sending unless provider.data_collection = deny. Unit-tested on a mocked transport."],
+    ["Read-only database", "Tools query as stocks_analyst: SELECT on intel only, default_transaction_read_only, 5 s statement timeout. Fallback is the app pool inside a READ ONLY transaction."],
+    ["Positions redacted", "qty, avg_cost, cost basis, value, weight and notes are dropped from evidence unless analyst_share_positions_offsite is true. Direction, not size."],
+    ["Only the watchlist", "Any ticker in the output that is not a db:watchlist id is dropped and logged. The model cannot introduce names."],
+    ["Every claim cited", "A sentence whose cites do not resolve to the index is stripped into data_gaps. Zero valid cites, zero claim."],
+    ["Levels grounded", "Each number in levels and each entry_zone bound must sit within 15% of a close, SMA, 52w high/low, target or cost basis in the cited evidence, else flagged ungrounded."],
+    ["Evidence is data", "Every tool result is wrapped in <evidence trust=“untrusted”>; the system prompt says instruction-like text inside is ignored."],
+    ["Spend cap", "analyst_daily_cap_usd gates the start and is re-checked after every model turn. Cost comes from the OpenRouter usage block, catalog estimate as fallback."],
+    ["No brokers, fixed disclaimer", "Nothing in the tool set reaches a broker. The disclaimer string is added in code, never by the model."],
+  ];
+  const tools = [
+    { n: "score_history", a: "(ticker, days)", id: "db:score_history:{T}:{date}", d: "composite, momentum, sentiment, flags per day" },
+    { n: "price_window", a: "(ticker, days)", id: "db:prices:{T}:{date}", d: "OHLCV + SMA20/50/200, RSI14, ATR, 52w hi/lo, latest first" },
+    { n: "news_for_ticker", a: "(ticker, days, limit)", id: "db:news:{T}:{n}", d: "stored headlines with sentiment, one id per article" },
+    { n: "flag_history", a: "(ticker, days)", id: "db:flags:{T}", d: "days the ticker carried an entry or risk flag" },
+    { n: "earnings", a: "(ticker)", id: "db:earnings:{T}", d: "report dates and surprises near as_of" },
+    { n: "fundamentals", a: "(ticker)", id: "db:fund:{T}", d: "latest valuation and balance-sheet snapshot" },
+    { n: "insider", a: "(ticker, days)", id: "db:insider:{T}", d: "insider transactions, buys vs sells" },
+    { n: "db_sql", a: "(select)", id: "db:sql:{n}", d: "one guarded SELECT: single statement, no DDL/DML, no catalogs, LIMIT forced to 500. 5 calls", guard: true },
+    { n: "calc", a: "(expr)", id: "calc:{n}", d: "AST arithmetic only: + - * / ** % abs round min max. Unlimited", guard: true },
+  ];
+  const rowH = 30, tHead = 58;
+  const toolsHBase = tHead + tools.length * rowH + 92;
+  // guard card content height, measured before drawing so both cards share one bottom edge
+  const guardWPre = W - M - guardX;
+  let guardNeed = 28;
+  GUARDS.forEach(([h, body]) => { guardNeed += 17; guardNeed += linesFor(body, guardWPre - 52, F.body12) * 15 + 6; });
+  const toolsH = Math.max(toolsHBase, guardNeed + 10);
+  rect(gTools, toolsX, Y, toolsW, toolsH, "card", 10);
+  // column headers
+  const cTool = toolsX + 18, cId = toolsX + 300, cDesc = toolsX + 560;
+  text(gTools, cTool, Y + 26, "tool", "t-eyebrow"); text(gTools, cId, Y + 26, "evidence id it mints", "t-eyebrow"); text(gTools, cDesc, Y + 26, "returns", "t-eyebrow");
+  el("line", { x1: toolsX + 12, y1: Y + 36, x2: toolsX + toolsW - 12, y2: Y + 36, class: "divider" }, gTools);
+  tools.forEach((t, i) => {
+    const ry = Y + tHead + i * rowH;
+    if (i === 7) { el("line", { x1: toolsX + 12, y1: ry - 12, x2: toolsX + toolsW - 12, y2: ry - 12, class: "divider" }, gTools); }
+    text(gTools, cTool, ry, t.n, "t-mono-ink");
+    text(gTools, cTool + measure(t.n, F.mono12) + 2, ry, t.a, "t-mono");
+    text(gTools, cId, ry, t.id, "t-mono-accent");
+    text(gTools, cDesc, ry, t.d, "t-body");
+  });
+  // baseline templates footer inside the card
+  const bY = Y + tHead + tools.length * rowH + 10;
+  el("line", { x1: toolsX + 12, y1: bY - 6, x2: toolsX + toolsW - 12, y2: bY - 6, class: "divider" }, gTools);
+  text(gTools, cTool, bY + 16, "Baseline pack, run as code before the model speaks", "t-body-ink");
+  chips(gTools, cTool, bY + 28, [["watchlist → db:watchlist:{T}", "code"], ["benchmarks → db:bench:{T}:{date}", "code"], ["scores_for_date → db:scores:{T}:{date}", "code"], ["holdings → db:holding:{T}", "code"], ["run_footer → db:run:{date}", "code"]]);
+  text(gTools, cTool, bY + 72, "Templates carry a 30-call budget in gather. Every tool returns evidence items {id, kind, excerpt, payload, ticker}; the graph formats them and keeps them for the citation check.", "t-body");
+
+  // guardrails card
+  const guardW = W - M - guardX;
+  rect(gGuard, guardX, Y, guardW, toolsH, "card", 10);
+  let gy = Y + 28;
+  const gRowGap = 6;
+  GUARDS.forEach(([h, body], i) => {
+    el("circle", { cx: guardX + 20, cy: gy - 4, r: 4, class: i === 0 ? "dot-model" : "dot-code" }, gGuard);
+    text(gGuard, guardX + 32, gy, h, "t-h");
+    gy = wrap(gGuard, guardX + 32, gy + 17, body, "t-body", guardW - 52, F.body12, 15) + gRowGap;
+  });
+  Y += toolsH + 44;
+
+  // =====================================================================
+  // 5. Data in / out  +  surfaces  +  first run
+  // =====================================================================
+  const gData = group("Data");
+  eyebrow(gData, M, Y, "5  ·  Data and surfaces");
+  Y += 14;
+  const dataH = 236;
+  const dc1 = { x: M, w: 470 }, dc2 = { x: M + 490, w: 420 }, dc3 = { x: M + 930, w: W - M - (M + 930) };
+  rect(gData, dc1.x, Y, dc1.w, dataH, "card", 10);
+  rect(gData, dc2.x, Y, dc2.w, dataH, "card", 10);
+  rect(gData, dc3.x, Y, dc3.w, dataH, "card", 10);
+
+  text(gData, dc1.x + 18, Y + 28, "Reads  ·  Postgres stocks, schema intel", "t-h");
+  chips(gData, dc1.x + 18, Y + 42, [["watchlist", "code"], ["positions", "code"], ["scores_daily", "code"], ["prices_daily", "code"], ["indicators_daily", "code"]]);
+  chips(gData, dc1.x + 18, Y + 70, [["news_articles", "code"], ["runs", "code"], ["api_usage", "code"], ["earnings_calendar", "code"], ["fundamentals", "code"]]);
+  chips(gData, dc1.x + 18, Y + 98, [["insider_tx", "code"], ["reports", "code"], ["config: analyst_*", "code"]]);
+  chips(gData, dc1.x + 18, Y + 126, []);
+  text(gData, dc1.x + 18, Y + 160, "Writes", "t-h");
+  chips(gData, dc1.x + 18, Y + 172, [["analyses", "accent"], ["analysis_sources", "accent"], ["runs kind=analyze", "accent"], ["analysis_feedback (from the UI)", "accent"]]);
+
+  text(gData, dc2.x + 18, Y + 28, "Where it shows up", "t-h");
+  let sy = Y + 50;
+  const surfaces = [
+    ["Today panel", "market read, stances, entries, avoid, questions, data gaps. Each sentence ends in citation chips."],
+    ["Source drawer", "a chip opens the excerpt and the exact row the model saw."],
+    ["Feedback", "useful / not useful plus a note, stored per analysis. Ten rated analyses close the C1 gate."],
+    ["Reports and Runs", "status per date; analyst runs sit next to pipeline runs with turns, tool calls and cost."],
+  ];
+  surfaces.forEach(([h, body]) => {
+    text(gData, dc2.x + 18, sy, h, "t-body-ink");
+    sy = wrap(gData, dc2.x + 18, sy + 16, body, "t-body", dc2.w - 36, F.body12, 15) + 10;
+  });
+
+  text(gData, dc3.x + 18, Y + 28, "First live run  ·  analysis 3, brief 2026-09-08, Sonnet 5", "t-h");
+  const stats = [["108k", "tokens in"], ["14k", "tokens out"], ["$0.34", "cost"], ["138 s", "wall clock"], ["5 / 7", "turns / tool calls"], ["33 / 2", "claims / stripped"], ["29", "sources cited"]];
+  const statW = (dc3.w - 36) / 4;
+  stats.forEach(([v, l], i) => {
+    const sx = dc3.x + 18 + (i % 4) * statW, syy = Y + 72 + Math.floor(i / 4) * 52;
+    text(gData, sx, syy, v, "t-stat");
+    text(gData, sx, syy + 17, l, "t-tiny");
+  });
+  wrap(gData, dc3.x + 18, Y + 182, "Runs 1 and 2 taught two lessons now fixed in code: a reasoning model can spend the whole output budget thinking (budget raised to 32k, reasoning uncapped until averages exist), and the SQL_ASCII server rejects backslash-u escapes in jsonb (writer sends raw UTF-8).", "t-body", dc3.w - 36, F.body12, 15);
+  Y += dataH + 44;
+
+  // =====================================================================
+  // 6. Roadmap strip
+  // =====================================================================
+  const gRoad = group("Roadmap");
+  eyebrow(gRoad, M, Y, "6  ·  What each next phase adds");
+  Y += 14;
+  const phases = [
+    ["C1", "gate", "Database tools, citations, critique, Today panel. Live. Gate: 10 rated analyses."],
+    ["C2", "code", "news_search (Brave, domain allow-list) and fetch_article (crawl4ai, MarkItDown fallback), article_texts cache, Sources drawer, outbound leakage rule."],
+    ["C3", "code", "Ask the analyst on Today and Ticker, analysis_questions, sec_filings over EDGAR."],
+    ["C4", "code", "Sunday deep pass with HITL, LangSmith eval set from rated analyses, regression gate on prompt changes."],
+    ["C5", "accent", "Model bake-off through OpenRouter: draft-only and full-agent modes, blind pairwise Compare view, promotion rule. deepseek-v4-pro-0813 · glm-5.3 · kimi-k3 · gpt-5.6-luna."],
+  ];
+  const pw = (W - 2 * M - 4 * 16) / phases.length, ph = 118;
+  phases.forEach(([n, k, body], i) => {
+    const px = M + i * (pw + 16);
+    rect(gRoad, px, Y, pw, ph, "card", 10);
+    chip(gRoad, px + 16, Y + 14, n, k);
+    wrap(gRoad, px + 16, Y + 58, body, "t-body", pw - 32, F.body12, 15);
+  });
+  Y += ph + 40;
+  text(gRoad, W - M, Y, "stock-intel · app/stockintel/analyst · docs/ANALYST.md · rendered from the code", "t-tiny", "end");
+  svg.setAttribute("viewBox", `0 0 ${W} ${Y + 24}`);
+  svg.setAttribute("height", Y + 24);
+
+  // ---- copy as standalone SVG with resolved colors (for Figma paste) ----
+  document.getElementById("copy").addEventListener("click", async () => {
+    const status = document.getElementById("status");
+    const clone = svg.cloneNode(true);
+    const live = svg.querySelectorAll("*"), copies = clone.querySelectorAll("*");
+    const props = ["fill", "stroke", "stroke-width", "stroke-dasharray", "font-family", "font-size", "font-weight", "letter-spacing", "text-anchor"];
+    live.forEach((n, i) => {
+      const cs = getComputedStyle(n), c = copies[i];
+      for (const p of props) { const v = cs.getPropertyValue(p); if (v && v !== "none" || (p === "fill" && v)) c.setAttribute(p, v); }
+      c.removeAttribute("class");
+    });
+    clone.querySelectorAll("polygon,path,line").forEach(n => { if (!n.getAttribute("fill")) n.setAttribute("fill", "none"); });
+    clone.setAttribute("xmlns", NS);
+    clone.setAttribute("width", W); clone.setAttribute("height", Y + 24);
+    const bg = document.createElementNS(NS, "rect");
+    bg.setAttribute("width", W); bg.setAttribute("height", Y + 24); bg.setAttribute("fill", getComputedStyle(document.body).backgroundColor);
+    clone.insertBefore(bg, clone.firstChild);
+    const out = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone);
+    try { await navigator.clipboard.writeText(out); status.textContent = `Copied ${(out.length / 1024).toFixed(0)} KB. Paste into a Figma page.`; }
+    catch (e) { status.textContent = "Clipboard blocked here. Open the page in a normal tab and try again."; }
+  });
+});
+</script>

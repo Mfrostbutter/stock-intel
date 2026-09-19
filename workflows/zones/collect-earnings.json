@@ -1,0 +1,47 @@
+{
+  "gutter": 16,
+  "panels": [
+    {
+      "title": "Collect-Earnings: source + rules",
+      "color": 7,
+      "width": 960,
+      "body": "**Finnhub calendar/earnings**, one call per ticker, 1.1 s apart (60/min free tier), about a minute for the watchlist. Window: 100 days back for the last reported quarter and its surprise, 120 days forward for the next date.\n**Stored** in intel.earnings_calendar: report_date, hour (bmo before open, amc after close), EPS and revenue estimate vs actual, surprise_pct = (actual - estimate) / |estimate|.\n**Moved dates**: companies reschedule, so unreported future rows are cleared for every ticker that answered before the upsert. A ticker whose call failed keeps what it had.\n**No coverage** is normal for recent listings and some small caps; they come back in `no_date` so the brief can say the date is unknown instead of implying there is none. Benchmarks (ETFs) are skipped."
+    }
+  ],
+  "zones": [
+    {
+      "title": "Input",
+      "color": 4,
+      "nodes": [
+        "When called"
+      ],
+      "body": "Called with {run_id, as_of, tickers[], benchmarks[]}."
+    },
+    {
+      "title": "Fan out + fetch",
+      "color": 3,
+      "nodes": [
+        "One item per ticker",
+        "Finnhub earnings calendar"
+      ],
+      "body": "One item per non-ETF ticker. neverError with the full response: a bad reply becomes a ledger row, not a crash."
+    },
+    {
+      "title": "Normalize + store",
+      "color": 5,
+      "nodes": [
+        "Flatten earnings",
+        "Upsert earnings_calendar"
+      ],
+      "body": "Rows keyed ticker + report_date. One transaction: clear moved dates, upsert, one intel.api_usage row per call."
+    },
+    {
+      "title": "Return",
+      "color": 5,
+      "nodes": [
+        "Return counts"
+      ],
+      "body": "Counts, failed tickers and the no-date list go back to Daily for the run status and the brief."
+    }
+  ]
+}

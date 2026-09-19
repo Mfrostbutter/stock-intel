@@ -1,0 +1,19 @@
+# LF everywhere. Syncthing copies the working tree verbatim and bypasses git's EOL
+# conversion, so CRLF on disk lands intact on the Mac. The explicit pins matter:
+# text=auto treats a file above roughly 0.8% non-ASCII bytes as binary and skips it.
+* text=auto eol=lf
+
+*.md    text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+*.jsonl text eol=lf
+*.csv   text eol=lf
+*.sql   text eol=lf
+*.py    text eol=lf
+*.html  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary

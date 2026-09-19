@@ -1,0 +1,42 @@
+{
+ "gutter": 16,
+ "panels": [
+  {
+   "title": "Stock Intel: Backfill",
+   "color": 6,
+   "width": 640,
+   "body": "Manual, run once after seeding the watchlist or after adding tickers. Pulls two years of daily bars for every active ticker (Alpaca, ~505 bars each, paginated) and computes indicators for all of them (days_back=600). Safe to re-run: every write is an upsert. Takes a few minutes."
+  }
+ ],
+ "zones": [
+  {
+   "title": "Trigger + run context",
+   "color": 4,
+   "nodes": [
+    "Manual",
+    "Backfill webhook",
+    "Start run + watchlist",
+    "Build context (2y)"
+   ],
+   "body": "Manual run, or a POST webhook on stock-intel/backfill carrying {tickers:[...]} so adding a ticker in the app backfills just that symbol. One SQL opens a run row and returns the active watchlist; Build context (2y) narrows to the webhook list when there is one and sets a two-year window, days_back=600."
+  },
+  {
+   "title": "Collect",
+   "color": 5,
+   "nodes": [
+    "Collect-Prices",
+    "Ctx",
+    "Compute-Indicators"
+   ],
+   "body": "Same sub-workflows the Daily run uses. Ctx re-emits the context item between them."
+  },
+  {
+   "title": "Finish",
+   "color": 3,
+   "nodes": [
+    "Finish run"
+   ],
+   "body": "Closes intel.runs with the row counts from both sub-workflows."
+  }
+ ]
+}

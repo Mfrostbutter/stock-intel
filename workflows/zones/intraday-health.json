@@ -1,0 +1,29 @@
+{
+  "gutter": 16,
+  "zones": [
+    {
+      "title": "Trigger",
+      "body": "Every minute. Self-gates: raises incidents only inside an expected session window (a WF-01 manifest exists, now within OPEN-30m..CLOSE+15m). Quiet otherwise.",
+      "color": 4,
+      "nodes": ["Every minute"]
+    },
+    {
+      "title": "Read status",
+      "body": "One read-only query builds a status object: latest source_health per source, newest bar age, open jobs and lease, today's manifest, open-incident sigs.",
+      "color": 3,
+      "nodes": ["Read collection status"]
+    },
+    {
+      "title": "Evaluate + apply",
+      "body": "Thresholds: heartbeat >180s, provider age >120s, http failures, outage, bar gap >180s, overdue lease. Each problem carries a stable sig; new sigs open an incident, cleared sigs resolve. Deduped by open sig, no messaging.",
+      "color": 5,
+      "nodes": ["Evaluate thresholds", "Apply incidents", "Status"]
+    },
+    {
+      "title": "Workflow errors",
+      "body": "Error Trigger. Registered as the errorWorkflow for the intraday collectors; each failed run appends a workflow_error incident with the node and message.",
+      "color": 6,
+      "nodes": ["On workflow error", "Log workflow-error incident"]
+    }
+  ]
+}

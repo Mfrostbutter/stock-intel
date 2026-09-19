@@ -1,0 +1,1 @@
+{"When called": [0, 0], "One item per ticker": [1, 0], "Finnhub company-news": [2, 0], "Alpha Vantage NEWS_SENTIMENT": [2, 1], "Flatten Finnhub": [3, 0], "Flatten AV": [3, 1], "Upsert Finnhub articles": [4, 0], "Upsert AV articles": [4, 1], "Wait for both": [5, 0], "Aggregate sentiment_daily": [6, 0], "Return counts": [7, 0], "AV query plan": [1, 1]}

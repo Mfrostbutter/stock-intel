@@ -1,0 +1,48 @@
+{
+  "gutter": 16,
+  "panels": [
+    {
+      "title": "Collect-Signals: source + rules",
+      "color": 7,
+      "width": 960,
+      "body": "Two Finnhub calls per non-ETF ticker, 1.1 s apart, about two minutes.\n**stock/insider-transactions** (SEC Form 4, 120 days back): one intel.insider_tx row per transaction, keyed by accession + detail so a re-pull updates in place. tx_type keeps P (open-market buy) / S (sale) / other; the SEC code and the derivative flag are stored so the score can ignore option exercises, awards, gifts and tax withholding.\n**stock/recommendation**: monthly buy / hold / sell counts, one intel.analyst_recs row per (ticker, month), upserted.\nA ticker whose call fails keeps its old rows. Every call lands in intel.api_usage."
+    }
+  ],
+  "zones": [
+    {
+      "title": "Input",
+      "color": 4,
+      "nodes": [
+        "When called"
+      ],
+      "body": "Called with {run_id, as_of, tickers[], benchmarks[]}."
+    },
+    {
+      "title": "Fan out + fetch",
+      "color": 3,
+      "nodes": [
+        "One item per ticker",
+        "Finnhub insiders",
+        "Finnhub recommendations"
+      ],
+      "body": "One item per non-ETF ticker, then the two calls in series. neverError with the full response: a bad reply becomes a ledger row, not a crash."
+    },
+    {
+      "title": "Normalize + store",
+      "color": 5,
+      "nodes": [
+        "Flatten signals",
+        "Upsert signals"
+      ],
+      "body": "Rows matched back to tickers by request order, then one transaction: insiders, recs, ledger."
+    },
+    {
+      "title": "Return",
+      "color": 5,
+      "nodes": [
+        "Return counts"
+      ],
+      "body": "Row counts and failed tickers go back to Daily for the run status."
+    }
+  ]
+}
