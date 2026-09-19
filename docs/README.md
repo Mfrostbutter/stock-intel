@@ -4,6 +4,7 @@ Start with the [README](../README.md) for the quickstart, then:
 
 | Doc | Read it when |
 |---|---|
+| [SCREENS.md](SCREENS.md) | seeing what the app looks like before you install it |
 | [SETUP-APIS.md](SETUP-APIS.md) | getting the API keys, or wondering what breaks without one |
 | [DEPLOY.md](DEPLOY.md) | standing the stack up, changing ports, backing it up |
 | [WATCHLIST.md](WATCHLIST.md) | choosing what to follow, tags, benchmarks, holdings |

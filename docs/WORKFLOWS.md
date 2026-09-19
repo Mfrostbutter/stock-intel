@@ -24,6 +24,11 @@ in `workflows/`, carry pinned ids from `deploy/n8n/ids.json`, and are imported a
 The three intraday workflows import inactive. `scripts/bootstrap.py --intraday` activates them
 together with the recorder profile.
 
+Every canvas below is documented on the canvas itself, in generated sticky notes. The zone specs in
+`workflows/zones/` are the source; see [CANVAS.md](CANVAS.md).
+
+![The Daily canvas](images/workflows/01-daily.png)
+
 ## How the daily run hangs together
 
 ```
@@ -97,3 +102,58 @@ works, or the next `bootstrap.py` will overwrite it.
 3. Add an Execute Workflow node to Daily pointing at the pinned id, plus a `Ctx` node after it to
    re-emit the context (a sub-workflow returns its own counts, not the input).
 4. Fold its counts into the Build brief status check so a failure degrades the run.
+
+## Every canvas
+
+### Backfill
+
+Two years of prices for one ticker or the whole list. Runs from the app when you add a ticker, or
+by hand.
+
+![Backfill](images/workflows/02-backfill.png)
+
+### Collect-Prices
+
+![Collect-Prices](images/workflows/03-collect-prices.png)
+
+### Compute-Indicators
+
+![Compute-Indicators](images/workflows/04-compute-indicators.png)
+
+### Collect-News
+
+![Collect-News](images/workflows/05-collect-news.png)
+
+### Collect-Earnings
+
+![Collect-Earnings](images/workflows/06-collect-earnings.png)
+
+### Collect-Fundamentals
+
+![Collect-Fundamentals](images/workflows/07-collect-fundamentals.png)
+
+### Collect-Signals
+
+![Collect-Signals](images/workflows/08-collect-signals.png)
+
+### Entry Signals
+
+Four passes a trading day, each gated on the Alpaca market clock so holidays and early closes skip
+themselves.
+
+![Entry Signals](images/workflows/09-entry-signals.png)
+
+### Intraday Session Prep (WF-01)
+
+The three intraday workflows import inactive. They only matter if you turn the minute-bar recorder
+on; see [INTRADAY.md](INTRADAY.md).
+
+![Intraday Session Prep](images/workflows/10-intraday-session-prep-wf-01.png)
+
+### Intraday Health (WF-07)
+
+![Intraday Health](images/workflows/11-intraday-health-wf-07.png)
+
+### Intraday Gap Repair (WF-08)
+
+![Intraday Gap Repair](images/workflows/12-intraday-gap-repair-wf-08.png)

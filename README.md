@@ -47,6 +47,14 @@ Full walkthrough: [docs/DEPLOY.md](docs/DEPLOY.md). API keys: [docs/SETUP-APIS.m
 - **Settings**: scoring weights, quotas, analyst models and providers, delivery.
 - `/m` is a phone layout of the same thing. Telegram delivery is optional.
 
+![The Today screen: run health, holdings, entry watch and the morning brief](docs/images/app/01-today.png)
+
+The screenshots throughout the docs run on a demo dataset: the prices are a seeded random walk and
+the headlines are fictional, so no figure in them is a real quote or anyone's real position.
+
+More screens in [docs/SCREENS.md](docs/SCREENS.md), and every workflow canvas in
+[docs/WORKFLOWS.md](docs/WORKFLOWS.md).
+
 ## How it fits together
 
 ```
