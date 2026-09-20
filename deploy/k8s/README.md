@@ -44,6 +44,21 @@ Expect `recorder up: session=<uuid> feed=iex symbols=N market_open=...` then `po
 The `session=<uuid>` equals `uuid_generate_v5(uuid_ns_url(),'intraday:<date>')`, the same id WF-01
 writes on the manifest, so recorder bars and the session manifest line up.
 
+## Probes
+
+Two endpoints, on purpose:
+
+| Probe | Path | Checks the database | If it fails |
+|---|---|---|---|
+| readiness | `/health` | yes | the pod leaves the Service, and comes back when the database does |
+| liveness | `/health/live` | no | the container is restarted |
+
+Do not point liveness at `/health`. A liveness probe that pings Postgres turns a database outage
+into a restart loop: the probe blocks, kubelet calls the process hung, the container is killed, and
+the new one cannot reach the database either. Restarting an app has never fixed a database on
+another host. Keep `timeoutSeconds` above `db.ping`'s own wait as well, or a merely slow database
+reads as a hung process.
+
 ## Upgrade
 
 Bump the tag (e.g. `0.1.1`), rebuild + save + `ctr images import`, update the image in

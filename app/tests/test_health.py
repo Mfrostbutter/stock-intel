@@ -77,3 +77,38 @@ def test_unpriced_tickers_warn():
 
 def test_weekday_fallback_has_no_weekends():
     assert all(d.weekday() < 5 for d in health._weekday_sessions(date(2026, 11, 29)))
+
+
+# -- the probe contract ------------------------------------------------------
+# The liveness endpoint must never touch the database. A liveness probe that pings Postgres turns
+# a database outage into a restart loop, which is how the live deployment collected 38 restarts.
+
+def test_liveness_answers_without_the_database(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from stockintel import db, main
+
+    def explode(*a, **kw):
+        raise AssertionError("liveness must not touch the database")
+
+    monkeypatch.setattr(db, "ping", explode)
+    with TestClient(main.app) as client:
+        r = client.get("/health/live")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+    assert "db" not in r.json()
+
+
+def test_manifest_points_liveness_and_readiness_at_the_right_paths():
+    import pathlib
+
+    import yaml
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    docs = list(yaml.safe_load_all((root / "deploy" / "k8s" / "app.yaml").read_text(encoding="utf-8")))
+    container = next(c for d in docs if d and d.get("kind") == "Deployment"
+                     for c in d["spec"]["template"]["spec"]["containers"])
+    assert container["livenessProbe"]["httpGet"]["path"] == "/health/live"
+    assert container["readinessProbe"]["httpGet"]["path"] == "/health"
+    # The probe has to outlast db.ping's own wait, or a slow database reads as a hung process.
+    assert container["readinessProbe"]["timeoutSeconds"] > 2

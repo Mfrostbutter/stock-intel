@@ -75,9 +75,11 @@ def execute(sql: str, params: Any = None) -> int:
         return cur.rowcount
 
 
-def ping() -> bool:
+def ping(timeout: float = 2.0) -> bool:
+    """One SELECT 1. The default wait is short on purpose: a probe that blocks longer than the
+    prober's own timeout reads as a hung process and gets the container killed."""
     try:
-        with pool.connection(timeout=5) as conn, conn.cursor() as cur:
+        with pool.connection(timeout=timeout) as conn, conn.cursor() as cur:
             cur.execute("SELECT 1 AS ok")
             return cur.fetchone()["ok"] == 1
     except Exception as e:  # noqa: BLE001 - health probe must never raise

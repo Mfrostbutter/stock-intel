@@ -46,7 +46,18 @@ app.include_router(api.hook_router, dependencies=[Depends(require_bearer_or_n8n_
 
 @app.get("/health")
 def health() -> dict:
+    """Readiness: is this instance able to serve. Touches the database."""
     return {"status": "ok", "service": "stock-intel", "version": VERSION, "db": db.ping()}
+
+
+@app.get("/health/live")
+def health_live() -> dict:
+    """Liveness: is this process still answering. Touches nothing.
+
+    Deliberately no database call. A liveness probe that pings Postgres turns a database outage
+    into a restart loop, and restarting the app has never once fixed a database on another host.
+    """
+    return {"status": "ok", "service": "stock-intel", "version": VERSION}
 
 
 @app.get("/", include_in_schema=False)

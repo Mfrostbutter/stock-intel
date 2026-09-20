@@ -59,18 +59,25 @@ spec:
                 name: stock-intel-config
             - secretRef:
                 name: stock-intel-secrets
+          # Readiness checks the database, so an unreachable Postgres takes the pod out of the
+          # Service. Liveness does not, so the same outage never restarts the container: the probe
+          # timeout has to exceed db.ping's own wait or a slow database reads as a hung process.
           readinessProbe:
             httpGet:
               path: /health
               port: 8095
             initialDelaySeconds: 5
             periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: 8095
             initialDelaySeconds: 20
             periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
             requests:
               cpu: "50m"
