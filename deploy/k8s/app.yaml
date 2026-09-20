@@ -59,9 +59,18 @@ spec:
                 name: stock-intel-config
             - secretRef:
                 name: stock-intel-secrets
-          # Readiness checks the database, so an unreachable Postgres takes the pod out of the
-          # Service. Liveness does not, so the same outage never restarts the container: the probe
-          # timeout has to exceed db.ping's own wait or a slow database reads as a hung process.
+          # Liveness and startup touch nothing, so a database outage never restarts the container.
+          # Readiness reports the database but still answers 200, because one replica pulled from
+          # the Service is a worse outage than a degraded one. See README.md.
+          # The startup budget is 60s: a cold start with Postgres unreachable spends ~30s opening
+          # the pool before it binds.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8095
+            periodSeconds: 5
+            failureThreshold: 12
+            timeoutSeconds: 3
           readinessProbe:
             httpGet:
               path: /health

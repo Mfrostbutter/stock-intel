@@ -46,18 +46,33 @@ writes on the manifest, so recorder bars and the session manifest line up.
 
 ## Probes
 
-Two endpoints, on purpose:
+Three probes, two endpoints, on purpose:
 
-| Probe | Path | Checks the database | If it fails |
+| Probe | Path | Touches the database | If it fails |
 |---|---|---|---|
-| readiness | `/health` | yes | the pod leaves the Service, and comes back when the database does |
+| startup | `/health/live` | no | the container is restarted, after a 60s budget |
+| readiness | `/health` | yes, but see below | the pod leaves the Service |
 | liveness | `/health/live` | no | the container is restarted |
 
-Do not point liveness at `/health`. A liveness probe that pings Postgres turns a database outage
-into a restart loop: the probe blocks, kubelet calls the process hung, the container is killed, and
-the new one cannot reach the database either. Restarting an app has never fixed a database on
-another host. Keep `timeoutSeconds` above `db.ping`'s own wait as well, or a merely slow database
-reads as a hung process.
+**Do not point liveness at `/health`.** A liveness probe that pings Postgres turns a database
+outage into a restart loop: the probe blocks, kubelet calls the process hung, the container is
+killed, and the new one cannot reach the database either. Restarting an app has never fixed a
+database on another host.
+
+**`timeoutSeconds` has to exceed `db.ping`'s own wait** (2s), or a merely slow database reads as a
+hung process. That single default, 1s against a 5s pool wait, is what caused the restart loop this
+split was written to prevent.
+
+**Readiness does not actually drop the pod when the database is down**, and that is deliberate.
+`/health` answers 200 with `"db": false` rather than failing, because this deployment runs one
+replica: pulling it from the Service would replace a degraded page that says what is wrong with no
+page at all. The flag is there for humans and for monitoring. If you run more than one replica and
+would rather route around a bad one, make `/health` return 503 when `db` is false and readiness
+starts doing what its name suggests.
+
+**The startup probe is not decoration.** When Postgres is unreachable the app spends about 30
+seconds trying to open its pool before it binds the port, which is longer than the liveness initial
+delay. Without a startup probe, a cold start during a database outage is itself a restart loop.
 
 ## Upgrade
 

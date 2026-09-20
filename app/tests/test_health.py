@@ -109,6 +109,10 @@ def test_manifest_points_liveness_and_readiness_at_the_right_paths():
     container = next(c for d in docs if d and d.get("kind") == "Deployment"
                      for c in d["spec"]["template"]["spec"]["containers"])
     assert container["livenessProbe"]["httpGet"]["path"] == "/health/live"
+    assert container["startupProbe"]["httpGet"]["path"] == "/health/live"
     assert container["readinessProbe"]["httpGet"]["path"] == "/health"
     # The probe has to outlast db.ping's own wait, or a slow database reads as a hung process.
     assert container["readinessProbe"]["timeoutSeconds"] > 2
+    # A cold start with Postgres unreachable spends ~30s opening the pool before it binds.
+    startup = container["startupProbe"]
+    assert startup["periodSeconds"] * startup["failureThreshold"] >= 60
