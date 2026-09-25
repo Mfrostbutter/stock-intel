@@ -158,7 +158,6 @@
       <div class="banner" :class="dataHealth ? dataHealth.status : ''" x-show="dataHealth && dataHealth.status !== 'ok'">
         <b x-text="healthHeadline(dataHealth)"></b>
         <template x-for="c in (dataHealth ? dataHealth.checks : [])" :key="c.key"><div :style="c.ok ? 'opacity:.6' : ''" x-text="(c.ok ? 'ok  ' : 'FAIL  ') + c.message"></div></template>
-        <div class="mono" x-show="dataHealth && !dataHealth.checks.some(c => !c.ok)" x-text="'Status ' + (dataHealth ? dataHealth.status : '') + ' with no failing check. Payload: ' + JSON.stringify(dataHealth)"></div>
         <div class="muted" x-text="dataHealth ? 'expected session ' + (dataHealth.expected_session || '?') + ', checked ' + fmtTime(dataHealth.checked_at) : ''"></div>
       </div>
 

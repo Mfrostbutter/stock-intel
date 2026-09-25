@@ -646,7 +646,6 @@ python scripts/seed_watchlist.py</pre>
                     <span x-text="c.message"></span>
                   </li>
                 </template>
-                <li class="text-xs text-ink-700 mono" x-show="dataHealth && !dataHealth.checks.some(c => !c.ok)" x-text="'Status ' + (dataHealth ? dataHealth.status : '') + ' with no failing check. Payload: ' + JSON.stringify(dataHealth)"></li>
               </ul>
             </div>
             <!-- Run health strip -->
